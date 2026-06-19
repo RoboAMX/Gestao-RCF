@@ -3,23 +3,19 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import time
 
-# ==========================================
-# 🤖 IMPORTAÇÃO INTELIGENTE DO ROBÔ
-# ==========================================
 try:
     import agente_almoxweb 
     robo_disponivel = True
 except ModuleNotFoundError:
     robo_disponivel = False
 
+# Layout "wide" garante que a tabela use o espaço central todo
 st.set_page_config(page_title="Painel de Expedição WEG", layout="wide")
 
 # ==========================================
-# 1. CONEXÃO COM O POSTGRESQL (SUPABASE)
+# 1. CONEXÃO COM O POSTGRESQL (SUPABASE) E BANCO
 # ==========================================
-# Puxa a senha do cofre invisível da nuvem ou da pasta .streamlit local
 DATABASE_URL = st.secrets["banco_dados"]["url"]
-
 engine = create_engine(DATABASE_URL)
 
 with engine.connect() as conn:
@@ -58,9 +54,8 @@ with engine.connect() as conn:
         conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('expedicao', 'senha123', 'Operador')"))
         conn.commit()
 
-
 # ==========================================
-# 2. SISTEMA DE LOGIN 
+# 2. SISTEMA DE LOGIN
 # ==========================================
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
@@ -69,16 +64,13 @@ if "logado" not in st.session_state:
 
 if not st.session_state["logado"]:
     st.title("🔒 Acesso Restrito - Almoxarifado")
-    
     col_vazia1, col_login, col_vazia2 = st.columns([1, 2, 1])
     with col_login:
         with st.form("form_login"):
             st.markdown("### Digite suas credenciais:")
             usuario_input = st.text_input("Usuário").lower().strip()
             senha_input = st.text_input("Senha", type="password")
-            btn_entrar = st.form_submit_button("Entrar", type="primary")
-            
-            if btn_entrar:
+            if st.form_submit_button("Entrar", type="primary"):
                 with engine.connect() as conn:
                     resultado = conn.execute(text("SELECT senha, perfil FROM usuarios WHERE usuario = :u"), {"u": usuario_input}).fetchone()
                 
@@ -90,19 +82,17 @@ if not st.session_state["logado"]:
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("❌ Usuário ou senha incorretos! Tente novamente.")
+                    st.error("❌ Usuário ou senha incorretos!")
     st.stop()
 
-
 # ==========================================
-# 3. APLICATIVO PRINCIPAL
+# 3. MENU LATERAL (OCULTÁVEL)
 # ==========================================
-st.title("📦 Portal da Expedição (SAD 320)")
-
-st.sidebar.markdown(f"👨‍💻 Logado como: **{st.session_state['usuario_atual'].upper()}**")
+st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/WEG_logo.svg/1200px-WEG_logo.svg.png", width=120)
+st.sidebar.markdown(f"👨‍💻 Olá, **{st.session_state['usuario_atual'].upper()}**")
 st.sidebar.markdown(f"🛡️ Nível: **{st.session_state['perfil_atual']}**")
 
-if st.sidebar.button("🚪 Sair do Sistema"):
+if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
@@ -110,20 +100,14 @@ if st.sidebar.button("🚪 Sair do Sistema"):
 
 st.sidebar.divider()
 
-# ==========================================
-# 🤖 BOTÃO DO ROBÔ (ADMIN & LOCAL)
-# ==========================================
 if st.session_state["perfil_atual"] == "Admin":
-    st.sidebar.markdown("### 🤖 Robô de Extração")
-    
-    # Se o robô não estiver instalado (Nuvem), mostra aviso. Se estiver (PC da WEG), mostra o botão!
+    st.sidebar.markdown("### 🤖 Operações Base")
     if not robo_disponivel:
-        st.sidebar.info("🌐 Modo Nuvem: O robô de extração opera apenas no servidor local da WEG.")
+        st.sidebar.info("🌐 O robô de extração opera apenas no servidor local da WEG.")
     else:
-        if st.sidebar.button("⚡ Extrair AlmoxWeb e Salvar no SQL", type="primary"):
+        if st.sidebar.button("⚡ Acionar Robô AlmoxWeb", type="primary", use_container_width=True):
             with st.spinner("O Robô está extraindo os dados da WEG... Aguarde!"):
                 dados_novos = agente_almoxweb.extrair_dados_almoxweb()
-                
                 if dados_novos and len(dados_novos) > 0:
                     df_robo = pd.DataFrame(dados_novos)
                     df_para_banco = pd.DataFrame()
@@ -148,59 +132,71 @@ if st.session_state["perfil_atual"] == "Admin":
                     df_para_banco['fornecedor'] = df_robo.get('Fornecedor', '')
                     
                     df_para_banco.to_sql(name='expedicao_completa', con=engine, if_exists='append', index=False)
-                    
-                    st.sidebar.success(f"✅ Sucesso! {len(df_para_banco)} itens salvos no Banco!")
+                    st.sidebar.success(f"✅ {len(df_para_banco)} itens salvos!")
                     time.sleep(2)
                     st.rerun()
                 else:
-                    st.sidebar.error("❌ Falha ao extrair dados ou tabela vazia.")
-
+                    st.sidebar.error("❌ Falha ao extrair dados.")
 
 # ==========================================
-# CRIANDO AS ABAS DO SISTEMA
+# 4. TELA PRINCIPAL (CENTRALIZADA)
 # ==========================================
+st.title("📦 Portal da Expedição (SAD 320)")
+
 aba_pendentes, aba_historico = st.tabs(["📋 Pendentes de Despacho", "💾 Histórico (Já Despachados)"])
 
+# ------------------------------------------
+# ABA: PENDENTES
+# ------------------------------------------
 with aba_pendentes:
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        st.markdown("### 🔍 Filtros")
-        filtro_status = st.radio("Status de Qualidade:", ["Mostrar Tudo", "Apenas Livre", "Apenas CQ"])
+    # Filtros como BOTÕES HORIZONTAIS acima da tabela
+    filtro_status = st.radio(
+        "Filtre os materiais:", 
+        ["📦 Mostrar Tudo", "🟢 Apenas Livre", "🔴 Apenas CQ"],
+        horizontal=True
+    )
+    st.write("") # Dá um espacinho
         
     query = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
-
-    if filtro_status == "Apenas Livre": query += " AND tipo_estoque = 'Livre'"
-    elif filtro_status == "Apenas CQ": query += " AND tipo_estoque = 'CQ'"
+    if filtro_status == "🟢 Apenas Livre": query += " AND tipo_estoque = 'Livre'"
+    elif filtro_status == "🔴 Apenas CQ": query += " AND tipo_estoque = 'CQ'"
 
     df_tela = pd.read_sql_query(query, engine)
 
-    with col2:
-        if df_tela.empty:
-            st.success("🎉 Tudo limpo! Nenhum material pendente na doca.")
-        else:
-            df_tela.insert(0, "Selecionar", False)
-            colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
-            
-            df_editado = st.data_editor(
-                df_tela, hide_index=True, use_container_width=True,
-                disabled=colunas_bloqueadas 
-            )
-            
-            if st.button("🚀 Despachar Selecionados", type="primary"):
-                selecionados = df_editado[df_editado["Selecionar"] == True]
-                if selecionados.empty:
-                    st.error("Selecione pelo menos um item!")
-                else:
-                    with engine.connect() as conn:
-                        for id_peca in selecionados["id"]:
-                            conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
-                        conn.commit()
-                        
-                    st.success("✅ Despachado no Banco de Dados! Atualizando tela...")
-                    time.sleep(1)
-                    st.rerun()
+    if df_tela.empty:
+        st.success("🎉 Tudo limpo! Nenhum material pendente na doca.")
+    else:
+        df_tela.insert(0, "Selecionar", False)
+        colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
+        
+        # Tabela ocupando 100% do centro da tela
+        df_editado = st.data_editor(
+            df_tela, 
+            hide_index=True, 
+            use_container_width=True, 
+            disabled=colunas_bloqueadas,
+            height=400 # Define uma altura boa para a tabela
+        )
+        
+        st.write("") # Espaço
+        
+        # Botão de Ação abaixo da tabela, bem visível
+        if st.button("🚀 Despachar Materiais Selecionados", type="primary"):
+            selecionados = df_editado[df_editado["Selecionar"] == True]
+            if selecionados.empty:
+                st.error("Selecione pelo menos um item!")
+            else:
+                with engine.connect() as conn:
+                    for id_peca in selecionados["id"]:
+                        conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
+                    conn.commit()
+                st.success("✅ Materiais Despachados! Atualizando tela...")
+                time.sleep(1)
+                st.rerun()
 
+# ------------------------------------------
+# ABA: HISTÓRICO
+# ------------------------------------------
 with aba_historico:
     st.markdown("### 📦 Materiais já Despachados")
     
@@ -210,11 +206,11 @@ with aba_historico:
     if df_hist.empty:
         st.info("Nenhum material foi despachado ainda.")
     else:
-        st.dataframe(df_hist, hide_index=True, use_container_width=True)
+        st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400)
         
-        st.markdown("---")
+        st.divider()
         if st.session_state["perfil_atual"] == "Admin":
-            if st.button("🔄 Desfazer todos os envios (Resetar Teste)"):
+            if st.button("🔄 Resetar Teste (Voltar todos para Pendente)"):
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
                     conn.commit()
