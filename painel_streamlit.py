@@ -9,7 +9,6 @@ try:
 except ModuleNotFoundError:
     robo_disponivel = False
 
-# Layout "wide" garante que a tabela use o espaço central todo
 st.set_page_config(page_title="Painel de Expedição WEG", layout="wide")
 
 # ==========================================
@@ -55,12 +54,16 @@ with engine.connect() as conn:
         conn.commit()
 
 # ==========================================
-# 2. SISTEMA DE LOGIN
+# 2. SISTEMA DE LOGIN E CARRINHO (MEMÓRIA)
 # ==========================================
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
+
+# Criando a memória do "Carrinho de Expedição"
+if "carrinho_expedicao" not in st.session_state:
+    st.session_state["carrinho_expedicao"] = []
 
 if not st.session_state["logado"]:
     st.title("🔒 Acesso Restrito - Almoxarifado")
@@ -86,7 +89,7 @@ if not st.session_state["logado"]:
     st.stop()
 
 # ==========================================
-# 3. MENU LATERAL (OCULTÁVEL)
+# 3. MENU LATERAL
 # ==========================================
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/WEG_logo.svg/1200px-WEG_logo.svg.png", width=120)
 st.sidebar.markdown(f"👨‍💻 Olá, **{st.session_state['usuario_atual'].upper()}**")
@@ -96,6 +99,7 @@ if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
+    st.session_state["carrinho_expedicao"] = [] # Limpa o carrinho ao sair
     st.rerun()
 
 st.sidebar.divider()
@@ -139,60 +143,95 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.sidebar.error("❌ Falha ao extrair dados.")
 
 # ==========================================
-# 4. TELA PRINCIPAL (CENTRALIZADA)
+# 4. TELA PRINCIPAL
 # ==========================================
 st.title("📦 Portal da Expedição (SAD 320)")
 
 aba_pendentes, aba_historico = st.tabs(["📋 Pendentes de Despacho", "💾 Histórico (Já Despachados)"])
 
 # ------------------------------------------
-# ABA: PENDENTES
+# ABA: PENDENTES (COM MÚLTIPLOS FILTROS)
 # ------------------------------------------
 with aba_pendentes:
-    # Filtros como BOTÕES HORIZONTAIS acima da tabela
-    filtro_status = st.radio(
-        "Filtre os materiais:", 
-        ["📦 Mostrar Tudo", "🟢 Apenas Livre", "🔴 Apenas CQ"],
-        horizontal=True
-    )
-    st.write("") # Dá um espacinho
-        
+    
+    # 1. Os Filtros no Topo
+    st.markdown("##### 🔍 Filtros de Busca")
+    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
+    f_mat = col_f1.text_input("Material")
+    f_nf = col_f2.text_input("Nota Fiscal (NFE)")
+    f_data = col_f3.text_input("Data EM")
+    f_pos = col_f4.text_input("Posição")
+    f_forn = col_f5.text_input("Fornecedor")
+    
+    filtro_status = st.radio("Filtre o Tipo de Estoque:", ["📦 Mostrar Tudo", "🟢 Apenas Livre", "🔴 Apenas CQ"], horizontal=True)
+    st.divider()
+
+    # 2. Lendo os Dados Brutos do Banco
     query = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
     if filtro_status == "🟢 Apenas Livre": query += " AND tipo_estoque = 'Livre'"
     elif filtro_status == "🔴 Apenas CQ": query += " AND tipo_estoque = 'CQ'"
-
     df_tela = pd.read_sql_query(query, engine)
 
+    # 3. Aplicando os Filtros Múltiplos (Via Pandas para não dar dor de cabeça com SQL Dinâmico)
+    if not df_tela.empty:
+        # Garante que tudo é texto para evitar erro de filtro
+        for col in ['material', 'nfe', 'data_em', 'posicao_dep', 'fornecedor']:
+            df_tela[col] = df_tela[col].fillna('').astype(str)
+            
+        if f_mat: df_tela = df_tela[df_tela['material'].str.contains(f_mat, case=False)]
+        if f_nf: df_tela = df_tela[df_tela['nfe'].str.contains(f_nf, case=False)]
+        if f_data: df_tela = df_tela[df_tela['data_em'].str.contains(f_data, case=False)]
+        if f_pos: df_tela = df_tela[df_tela['posicao_dep'].str.contains(f_pos, case=False)]
+        if f_forn: df_tela = df_tela[df_tela['fornecedor'].str.contains(f_forn, case=False)]
+
+    # 4. Exibindo a Tabela e o Carrinho Mágico
     if df_tela.empty:
-        st.success("🎉 Tudo limpo! Nenhum material pendente na doca.")
+        st.success("Tudo limpo! Nenhum material encontrado com esses filtros.")
     else:
-        df_tela.insert(0, "Selecionar", False)
+        # A Mágica do Carrinho: Marca como TRUE só quem estiver na memória
+        df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
         colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
         
-        # Tabela ocupando 100% do centro da tela
         df_editado = st.data_editor(
             df_tela, 
             hide_index=True, 
             use_container_width=True, 
             disabled=colunas_bloqueadas,
-            height=400 # Define uma altura boa para a tabela
+            height=400
         )
         
-        st.write("") # Espaço
+        # O SISTEMA LÊ QUEM FOI CLICADO E GUARDA NO CARRINHO
+        for index, row in df_editado.iterrows():
+            id_linha = row['id']
+            ta_marcado = row['Selecionar']
+            
+            if ta_marcado and id_linha not in st.session_state["carrinho_expedicao"]:
+                st.session_state["carrinho_expedicao"].append(id_linha)
+            elif not ta_marcado and id_linha in st.session_state["carrinho_expedicao"]:
+                st.session_state["carrinho_expedicao"].remove(id_linha)
+
+        # Mostra o Status do Carrinho
+        qtd_carrinho = len(st.session_state["carrinho_expedicao"])
         
-        # Botão de Ação abaixo da tabela, bem visível
-        if st.button("🚀 Despachar Materiais Selecionados", type="primary"):
-            selecionados = df_editado[df_editado["Selecionar"] == True]
-            if selecionados.empty:
-                st.error("Selecione pelo menos um item!")
-            else:
-                with engine.connect() as conn:
-                    for id_peca in selecionados["id"]:
-                        conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
-                    conn.commit()
-                st.success("✅ Materiais Despachados! Atualizando tela...")
-                time.sleep(1)
-                st.rerun()
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            st.info(f"🛒 **Carrinho de Expedição:** Você selecionou **{qtd_carrinho}** itens no total.")
+            
+        with col_btn2:
+            if st.button("🚀 Despachar Itens do Carrinho", type="primary", use_container_width=True):
+                if qtd_carrinho == 0:
+                    st.error("O carrinho está vazio! Selecione os itens.")
+                else:
+                    with engine.connect() as conn:
+                        for id_peca in st.session_state["carrinho_expedicao"]:
+                            conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
+                        conn.commit()
+                        
+                    # Limpa o carrinho depois de despachar
+                    st.session_state["carrinho_expedicao"] = []
+                    st.success("✅ Materiais Despachados com sucesso! Atualizando...")
+                    time.sleep(1.5)
+                    st.rerun()
 
 # ------------------------------------------
 # ABA: HISTÓRICO
@@ -214,4 +253,6 @@ with aba_historico:
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
                     conn.commit()
+                # Limpa o carrinho também pra não dar bug no reset
+                st.session_state["carrinho_expedicao"] = []
                 st.rerun()
