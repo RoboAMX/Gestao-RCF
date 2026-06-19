@@ -12,56 +12,43 @@ except ModuleNotFoundError:
 st.set_page_config(page_title="Painel de Expedição WEG", layout="wide")
 
 # ==========================================
-# 1. CONEXÃO COM O POSTGRESQL (SUPABASE) E BANCO
+# 1. CONEXÃO COM O POSTGRESQL E CRIAÇÃO DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-with engine.connect() as conn:
-    conn.execute(text('''
-        CREATE TABLE IF NOT EXISTS expedicao_completa (
-            id SERIAL PRIMARY KEY,
-            item TEXT,
-            material TEXT,
-            descricao TEXT,
-            centro_dep TEXT,
-            tipo_estoque TEXT,
-            lote TEXT,
-            tp TEXT,
-            posicao_dep TEXT,
-            estoque REAL,
-            data_em TEXT,
-            data_necess TEXT,
-            nfe TEXT,
-            fornecedor TEXT,
-            status_envio TEXT DEFAULT 'Pendente' 
-        )
-    '''))
-
-    conn.execute(text('''
-        CREATE TABLE IF NOT EXISTS usuarios (
-            usuario TEXT PRIMARY KEY,
-            senha TEXT,
-            perfil TEXT
-        )
-    '''))
-    conn.commit()
-
-    qtd_usuarios = conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar()
-    if qtd_usuarios == 0:
-        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('expedicao', 'senha123', 'Operador')"))
+if "db_verificado" not in st.session_state:
+    with engine.connect() as conn:
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS expedicao_completa (
+                id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
+                centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
+                posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
+                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
+            )
+        '''))
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT
+            )
+        '''))
         conn.commit()
 
+        qtd_usuarios = conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar()
+        if qtd_usuarios == 0:
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('expedicao', 'senha123', 'Operador')"))
+            conn.commit()
+    st.session_state["db_verificado"] = True
+
 # ==========================================
-# 2. SISTEMA DE LOGIN E CARRINHO (MEMÓRIA)
+# 2. SISTEMA DE LOGIN E CARRINHO
 # ==========================================
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
 
-# Criando a memória do "Carrinho de Expedição"
 if "carrinho_expedicao" not in st.session_state:
     st.session_state["carrinho_expedicao"] = []
 
@@ -76,7 +63,6 @@ if not st.session_state["logado"]:
             if st.form_submit_button("Entrar", type="primary"):
                 with engine.connect() as conn:
                     resultado = conn.execute(text("SELECT senha, perfil FROM usuarios WHERE usuario = :u"), {"u": usuario_input}).fetchone()
-                
                 if resultado and resultado[0] == senha_input:
                     st.session_state["logado"] = True
                     st.session_state["usuario_atual"] = usuario_input
@@ -97,9 +83,7 @@ st.sidebar.markdown(f"🛡️ Nível: **{st.session_state['perfil_atual']}**")
 
 if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state["logado"] = False
-    st.session_state["usuario_atual"] = ""
-    st.session_state["perfil_atual"] = ""
-    st.session_state["carrinho_expedicao"] = [] # Limpa o carrinho ao sair
+    st.session_state.clear()
     st.rerun()
 
 st.sidebar.divider()
@@ -150,75 +134,69 @@ st.title("📦 Portal da Expedição (SAD 320)")
 aba_pendentes, aba_historico = st.tabs(["📋 Pendentes de Despacho", "💾 Histórico (Já Despachados)"])
 
 # ------------------------------------------
-# ABA: PENDENTES (COM MÚLTIPLOS FILTROS)
+# ABA: PENDENTES
 # ------------------------------------------
 with aba_pendentes:
     
-    # 1. Os Filtros no Topo
-    st.markdown("##### 🔍 Filtros de Busca")
-    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
-    f_mat = col_f1.text_input("Material")
-    f_nf = col_f2.text_input("Nota Fiscal (NFE)")
-    f_data = col_f3.text_input("Data EM")
-    f_pos = col_f4.text_input("Posição")
-    f_forn = col_f5.text_input("Fornecedor")
-    
-    filtro_status = st.radio("Filtre o Tipo de Estoque:", ["📦 Mostrar Tudo", "🟢 Apenas Livre", "🔴 Apenas CQ"], horizontal=True)
-    st.divider()
-
-    # 2. Lendo os Dados Brutos do Banco
+    # Busca os dados do banco (Rápido)
     query = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
-    if filtro_status == "🟢 Apenas Livre": query += " AND tipo_estoque = 'Livre'"
-    elif filtro_status == "🔴 Apenas CQ": query += " AND tipo_estoque = 'CQ'"
-    df_tela = pd.read_sql_query(query, engine)
+    df_bruto = pd.read_sql_query(query, engine)
 
-    # 3. Aplicando os Filtros Múltiplos (Via Pandas para não dar dor de cabeça com SQL Dinâmico)
-    if not df_tela.empty:
-        # Garante que tudo é texto para evitar erro de filtro
-        for col in ['material', 'nfe', 'data_em', 'posicao_dep', 'fornecedor']:
-            df_tela[col] = df_tela[col].fillna('').astype(str)
-            
-        if f_mat: df_tela = df_tela[df_tela['material'].str.contains(f_mat, case=False)]
-        if f_nf: df_tela = df_tela[df_tela['nfe'].str.contains(f_nf, case=False)]
-        if f_data: df_tela = df_tela[df_tela['data_em'].str.contains(f_data, case=False)]
-        if f_pos: df_tela = df_tela[df_tela['posicao_dep'].str.contains(f_pos, case=False)]
-        if f_forn: df_tela = df_tela[df_tela['fornecedor'].str.contains(f_forn, case=False)]
-
-    # 4. Exibindo a Tabela e o Carrinho Mágico
-    if df_tela.empty:
-        st.success("Tudo limpo! Nenhum material encontrado com esses filtros.")
+    if df_bruto.empty:
+        st.success("🎉 Tudo limpo! Nenhum material pendente na doca.")
     else:
-        # A Mágica do Carrinho: Marca como TRUE só quem estiver na memória
-        df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
-        colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
+        # 1. A BUSCA GLOBAL MÁGICA
+        st.markdown("##### 🔍 Busca Rápida (Filtra Tudo)")
+        busca_global = st.text_input(
+            "🔎 Digite qualquer coisa (Material, NF, Fornecedor, Lote, Posição...)", 
+            placeholder="Ex: 1000456, Furukawa, NF-123..."
+        ).strip()
         
-        df_editado = st.data_editor(
-            df_tela, 
-            hide_index=True, 
-            use_container_width=True, 
-            disabled=colunas_bloqueadas,
-            height=400
-        )
-        
-        # O SISTEMA LÊ QUEM FOI CLICADO E GUARDA NO CARRINHO
-        for index, row in df_editado.iterrows():
-            id_linha = row['id']
-            ta_marcado = row['Selecionar']
-            
-            if ta_marcado and id_linha not in st.session_state["carrinho_expedicao"]:
-                st.session_state["carrinho_expedicao"].append(id_linha)
-            elif not ta_marcado and id_linha in st.session_state["carrinho_expedicao"]:
-                st.session_state["carrinho_expedicao"].remove(id_linha)
+        st.divider()
 
-        # Mostra o Status do Carrinho
+        # 2. APLICANDO O FILTRO GLOBAL NA VELOCIDADE DA LUZ (PANDAS)
+        df_tela = df_bruto.copy()
+        
+        if busca_global:
+            # Transforma a linha inteira num textão e procura a palavra lá dentro!
+            mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+            df_tela = df_tela[mask]
+
+        # 3. EXIBINDO A TABELA E O CARRINHO
+        if df_tela.empty:
+            st.warning("Nenhum material encontrado com essa pesquisa.")
+        else:
+            # Coloca a caixinha e lembra de quem já estava no carrinho
+            df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+            colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
+            
+            df_editado = st.data_editor(
+                df_tela, 
+                hide_index=True, 
+                use_container_width=True, 
+                disabled=colunas_bloqueadas,
+                height=400
+            )
+            
+            # Sincroniza os cliques com a memória do Carrinho
+            for index, row in df_editado.iterrows():
+                id_linha = row['id']
+                ta_marcado = row['Selecionar']
+                
+                if ta_marcado and id_linha not in st.session_state["carrinho_expedicao"]:
+                    st.session_state["carrinho_expedicao"].append(id_linha)
+                elif not ta_marcado and id_linha in st.session_state["carrinho_expedicao"]:
+                    st.session_state["carrinho_expedicao"].remove(id_linha)
+
+        # 4. BOTÃO DE DESPACHO E STATUS DO CARRINHO
         qtd_carrinho = len(st.session_state["carrinho_expedicao"])
         
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
-            st.info(f"🛒 **Carrinho de Expedição:** Você selecionou **{qtd_carrinho}** itens no total.")
+            st.info(f"🛒 **Carrinho de Expedição:** Você tem **{qtd_carrinho}** itens selecionados na memória.")
             
         with col_btn2:
-            if st.button("🚀 Despachar Itens do Carrinho", type="primary", use_container_width=True):
+            if st.button("🚀 Despachar Carga do Carrinho", type="primary", use_container_width=True):
                 if qtd_carrinho == 0:
                     st.error("O carrinho está vazio! Selecione os itens.")
                 else:
@@ -227,9 +205,8 @@ with aba_pendentes:
                             conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
                         conn.commit()
                         
-                    # Limpa o carrinho depois de despachar
                     st.session_state["carrinho_expedicao"] = []
-                    st.success("✅ Materiais Despachados com sucesso! Atualizando...")
+                    st.success("✅ Carga Despachada com sucesso! Atualizando...")
                     time.sleep(1.5)
                     st.rerun()
 
@@ -253,6 +230,5 @@ with aba_historico:
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
                     conn.commit()
-                # Limpa o carrinho também pra não dar bug no reset
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
