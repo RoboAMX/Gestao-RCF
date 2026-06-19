@@ -2,83 +2,82 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 
-# Configuração da página
 st.set_page_config(page_title="Painel de Expedição WEG", layout="wide")
 st.title("📦 Portal da Expedição (SAD 320)")
-st.markdown("Dados lidos **em tempo real** direto do Banco de Dados SQL.")
 
-# 1. Abre a conexão com o seu Banco de Dados
 conexao = sqlite3.connect("banco_almoxweb.db", check_same_thread=False)
-
-# =======================================================
-# 🚀 A PROTEÇÃO INTELIGENTE (Cria o banco se não existir)
-# =======================================================
 cursor = conexao.cursor()
+
+# Cria a tabela e insere dados de teste (A nossa proteção)
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS dados_expedicao (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         material TEXT,
         descricao TEXT,
-        centro_dep TEXT,
         tipo_estoque TEXT,
         lote TEXT,
-        tp TEXT,
-        posicao_dep TEXT,
-        estoque REAL, 
-        data_em TEXT,
-        data_necess TEXT,
-        nfe TEXT,
-        fornecedor TEXT
+        estoque REAL,
+        status_envio TEXT DEFAULT 'Pendente' 
     )
 ''')
+# Adicionei a coluna "status_envio" para a gente poder dar baixa!
 
-# Verifica se a tabela está vazia. Se estiver, coloca 3 itens de teste pra você ver na tela!
 cursor.execute("SELECT COUNT(*) FROM dados_expedicao")
 if cursor.fetchone()[0] == 0:
     cursor.execute("INSERT INTO dados_expedicao (material, descricao, tipo_estoque, lote, estoque) VALUES ('1000888', 'PLACA ELETRONICA', 'Livre', 'L-111', 10)")
     cursor.execute("INSERT INTO dados_expedicao (material, descricao, tipo_estoque, lote, estoque) VALUES ('1000999', 'CABO DE REDE 5M', 'CQ', 'L-222', 100)")
     cursor.execute("INSERT INTO dados_expedicao (material, descricao, tipo_estoque, lote, estoque) VALUES ('1000777', 'DISJUNTOR 50A', 'Livre', 'L-333', 5)")
     conexao.commit()
-# =======================================================
 
-# 2. Criando Filtros na Tela
+# --- FILTROS ---
 col1, col2 = st.columns([1, 3])
 
 with col1:
     st.markdown("### 🔍 Filtros")
-    filtro_status = st.radio(
-        "Status de Qualidade (TipoEstoq):", 
-        ["Mostrar Tudo", "Apenas Livre", "Apenas CQ (Bloqueado)"]
-    )
+    filtro_status = st.radio("Status de Qualidade:", ["Mostrar Tudo", "Apenas Livre", "Apenas CQ"])
     
-    pesquisa_mat = st.text_input("Buscar por Material (Ex: 1000):")
-
-# 3. A MÁGICA DO SQL: Montando a pergunta (Query)
-query = "SELECT * FROM dados_expedicao WHERE 1=1"
+# --- LENDO O BANCO DE DADOS ---
+query = "SELECT id, material, descricao, tipo_estoque, lote, estoque, status_envio FROM dados_expedicao WHERE status_envio = 'Pendente'"
 
 if filtro_status == "Apenas Livre":
-    query = query + " AND tipo_estoque = 'Livre'"
-elif filtro_status == "Apenas CQ (Bloqueado)":
-    query = query + " AND tipo_estoque = 'CQ'"
+    query += " AND tipo_estoque = 'Livre'"
+elif filtro_status == "Apenas CQ":
+    query += " AND tipo_estoque = 'CQ'"
 
-if pesquisa_mat != "":
-    query = query + f" AND material LIKE '%{pesquisa_mat}%'"
-
-# 4. Lendo os dados com Pandas usando a Query
 df_tela = pd.read_sql_query(query, conexao)
 
-# 5. Mostrando a Tabela Bonitona no Streamlit
 with col2:
-    st.metric("Total de Itens Encontrados", len(df_tela))
+    st.markdown("### 📋 Materiais Pendentes de Despacho")
     
     if df_tela.empty:
-        st.warning("Nenhum material encontrado com esses filtros.")
+        st.success("Tudo limpo! Nenhum material pendente.")
     else:
-        st.dataframe(
+        # 1. Adicionamos uma coluna Falsa de Checkbox chamada "Selecionar"
+        df_tela.insert(0, "Selecionar", False)
+        
+        # 2. Mostramos a tabela INTERATIVA (data_editor em vez de dataframe)
+        df_editado = st.data_editor(
             df_tela,
+            hide_index=True,
             use_container_width=True,
-            hide_index=True 
+            disabled=["id", "material", "descricao", "tipo_estoque", "lote", "estoque", "status_envio"] # Bloqueia edição dos dados reais
         )
+        
+        # 3. O Botão de Ação!
+        if st.button("🚀 Despachar Selecionados", type="primary"):
+            # Pega só as linhas onde a caixinha "Selecionar" foi marcada
+            selecionados = df_editado[df_editado["Selecionar"] == True]
+            
+            if selecionados.empty:
+                st.error("Selecione pelo menos um item marcando a caixinha!")
+            else:
+                # Faz um UPDATE no Banco de Dados para cada ID selecionado
+                for id_peca in selecionados["id"]:
+                    cursor.execute("UPDATE dados_expedicao SET status_envio = 'Despachado' WHERE id = ?", (id_peca,))
+                
+                conexao.commit()
+                st.success("✅ Materiais despachados com sucesso! Atualizando tela...")
+                time.sleep(1) # Espera 1 segundo e recarrega a página
+                st.rerun()
 
-# Fecha a conexão no final
 conexao.close()
