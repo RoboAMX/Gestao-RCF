@@ -2,19 +2,27 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 import time
-import agente_almoxweb 
+
+# ==========================================
+# 🤖 IMPORTAÇÃO INTELIGENTE DO ROBÔ
+# ==========================================
+try:
+    import agente_almoxweb 
+    robo_disponivel = True
+except ModuleNotFoundError:
+    robo_disponivel = False
 
 st.set_page_config(page_title="Painel de Expedição WEG", layout="wide")
 
+# ==========================================
 # 1. CONEXÃO COM O POSTGRESQL (SUPABASE)
 # ==========================================
-# O Python agora busca a senha no cofre invisível!
+# Puxa a senha do cofre invisível da nuvem ou da pasta .streamlit local
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 
 engine = create_engine(DATABASE_URL)
 
 with engine.connect() as conn:
-    # CRIANDO A NOVA TABELA COM TODAS AS COLUNAS DA IMAGEM!
     conn.execute(text('''
         CREATE TABLE IF NOT EXISTS expedicao_completa (
             id SERIAL PRIMARY KEY,
@@ -103,47 +111,49 @@ if st.sidebar.button("🚪 Sair do Sistema"):
 st.sidebar.divider()
 
 # ==========================================
-# 🤖 BOTÃO DO ROBÔ (ADMIN)
+# 🤖 BOTÃO DO ROBÔ (ADMIN & LOCAL)
 # ==========================================
 if st.session_state["perfil_atual"] == "Admin":
     st.sidebar.markdown("### 🤖 Robô de Extração")
-    if st.sidebar.button("⚡ Extrair AlmoxWeb e Salvar no SQL", type="primary"):
-        with st.spinner("O Robô está extraindo os dados da WEG... Aguarde!"):
-            dados_novos = agente_almoxweb.extrair_dados_almoxweb()
-            
-            if dados_novos and len(dados_novos) > 0:
-                df_robo = pd.DataFrame(dados_novos)
-                df_para_banco = pd.DataFrame()
+    
+    # Se o robô não estiver instalado (Nuvem), mostra aviso. Se estiver (PC da WEG), mostra o botão!
+    if not robo_disponivel:
+        st.sidebar.info("🌐 Modo Nuvem: O robô de extração opera apenas no servidor local da WEG.")
+    else:
+        if st.sidebar.button("⚡ Extrair AlmoxWeb e Salvar no SQL", type="primary"):
+            with st.spinner("O Robô está extraindo os dados da WEG... Aguarde!"):
+                dados_novos = agente_almoxweb.extrair_dados_almoxweb()
                 
-                # MAPEANDO TODAS AS COLUNAS DA IMAGEM
-                df_para_banco['item'] = df_robo.get('Item', '')
-                df_para_banco['material'] = df_robo.get('Material', '')
-                df_para_banco['descricao'] = df_robo.get('Descricao', df_robo.get('Descrição', ''))
-                df_para_banco['centro_dep'] = df_robo.get('Centro_Dep', df_robo.get('Centro | Dep.', ''))
-                df_para_banco['tipo_estoque'] = df_robo.get('TipoEstoq.', df_robo.get('TipoEstoq', 'Livre'))
-                df_para_banco['lote'] = df_robo.get('Lote', '')
-                df_para_banco['tp'] = df_robo.get('Tp.', df_robo.get('Tp', ''))
-                df_para_banco['posicao_dep'] = df_robo.get('Posicao', df_robo.get('Posição Dep.', ''))
-                
-                # Tratamento da Quantidade (Estoque)
-                df_para_banco['estoque'] = df_robo.get('Quantidade', df_robo.get('Estoque', 0))
-                df_para_banco['estoque'] = df_para_banco['estoque'].astype(str).str.replace(r'[^\d.,]', '', regex=True)
-                df_para_banco['estoque'] = df_para_banco['estoque'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                df_para_banco['estoque'] = pd.to_numeric(df_para_banco['estoque'], errors='coerce').fillna(0.0)
+                if dados_novos and len(dados_novos) > 0:
+                    df_robo = pd.DataFrame(dados_novos)
+                    df_para_banco = pd.DataFrame()
+                    
+                    df_para_banco['item'] = df_robo.get('Item', '')
+                    df_para_banco['material'] = df_robo.get('Material', '')
+                    df_para_banco['descricao'] = df_robo.get('Descricao', df_robo.get('Descrição', ''))
+                    df_para_banco['centro_dep'] = df_robo.get('Centro_Dep', df_robo.get('Centro | Dep.', ''))
+                    df_para_banco['tipo_estoque'] = df_robo.get('TipoEstoq.', df_robo.get('TipoEstoq', 'Livre'))
+                    df_para_banco['lote'] = df_robo.get('Lote', '')
+                    df_para_banco['tp'] = df_robo.get('Tp.', df_robo.get('Tp', ''))
+                    df_para_banco['posicao_dep'] = df_robo.get('Posicao', df_robo.get('Posição Dep.', ''))
+                    
+                    df_para_banco['estoque'] = df_robo.get('Quantidade', df_robo.get('Estoque', 0))
+                    df_para_banco['estoque'] = df_para_banco['estoque'].astype(str).str.replace(r'[^\d.,]', '', regex=True)
+                    df_para_banco['estoque'] = df_para_banco['estoque'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                    df_para_banco['estoque'] = pd.to_numeric(df_para_banco['estoque'], errors='coerce').fillna(0.0)
 
-                df_para_banco['data_em'] = df_robo.get('Data_Entrada', df_robo.get('Data EM', ''))
-                df_para_banco['data_necess'] = df_robo.get('Data_Necess', df_robo.get('Data Necess.', ''))
-                df_para_banco['nfe'] = df_robo.get('NF', df_robo.get('NFE', ''))
-                df_para_banco['fornecedor'] = df_robo.get('Fornecedor', '')
-                
-                # JOGA A TABELA COMPLETA PRO POSTGRESQL!
-                df_para_banco.to_sql(name='expedicao_completa', con=engine, if_exists='append', index=False)
-                
-                st.sidebar.success(f"✅ Sucesso! {len(df_para_banco)} itens completos salvos no Banco!")
-                time.sleep(2)
-                st.rerun()
-            else:
-                st.sidebar.error("❌ Falha ao extrair dados ou tabela vazia.")
+                    df_para_banco['data_em'] = df_robo.get('Data_Entrada', df_robo.get('Data EM', ''))
+                    df_para_banco['data_necess'] = df_robo.get('Data_Necess', df_robo.get('Data Necess.', ''))
+                    df_para_banco['nfe'] = df_robo.get('NF', df_robo.get('NFE', ''))
+                    df_para_banco['fornecedor'] = df_robo.get('Fornecedor', '')
+                    
+                    df_para_banco.to_sql(name='expedicao_completa', con=engine, if_exists='append', index=False)
+                    
+                    st.sidebar.success(f"✅ Sucesso! {len(df_para_banco)} itens salvos no Banco!")
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.sidebar.error("❌ Falha ao extrair dados ou tabela vazia.")
 
 
 # ==========================================
@@ -158,7 +168,6 @@ with aba_pendentes:
         st.markdown("### 🔍 Filtros")
         filtro_status = st.radio("Status de Qualidade:", ["Mostrar Tudo", "Apenas Livre", "Apenas CQ"])
         
-    # Lendo TODAS (*) as colunas da tabela nova
     query = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
 
     if filtro_status == "Apenas Livre": query += " AND tipo_estoque = 'Livre'"
@@ -171,8 +180,6 @@ with aba_pendentes:
             st.success("🎉 Tudo limpo! Nenhum material pendente na doca.")
         else:
             df_tela.insert(0, "Selecionar", False)
-            
-            # Trava todas as colunas para edição, EXCETO a caixinha de 'Selecionar'
             colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
             
             df_editado = st.data_editor(
