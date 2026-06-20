@@ -66,6 +66,10 @@ if "db_verificado" not in st.session_state:
         except: pass
         try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
         except: pass
+        
+        # 🚀 NOVA COLUNA: REGISTRO DA HORA DO DESPACHO (Para o SLA de 24h)
+        try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS data_hora_despacho TEXT"))
+        except: pass
             
         conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
         conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
@@ -196,8 +200,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     df_banco = pd.read_sql_query(query_banco, engine)
                     
                     chaves_no_banco = set(df_banco['chave_banco'])
-                    # O Robô agora considera "Pendente" ou "Em Trânsito Interno" para não duplicar e não sumir com o que a doca já enviou!
-                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'].isin(['Pendente', 'Em Trânsito Interno'])]['chave_banco'])
+                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'] == 'Pendente']['chave_banco'])
                     chaves_do_sap = set(df_pb['chave_comparacao'])
 
                     df_inserir = df_pb[~df_pb['chave_comparacao'].isin(chaves_no_banco)].copy()
@@ -210,7 +213,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     if chaves_sumiram:
                         with engine.connect() as conn:
                             for chave in chaves_sumiram:
-                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio IN ('Pendente', 'Em Trânsito Interno') AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
+                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio = 'Pendente' AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
                             conn.commit()
 
                     st.sidebar.success(f"✅ Sincronizado! \n{len(df_inserir)} novos.\n{len(chaves_sumiram)} baixados.")
@@ -218,9 +221,10 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO)
+# 4. FUNÇÕES DE SLA, LOTES E PDF
 # ==========================================
 def calcular_sla_pandas(df):
+    """Calcula o SLA da Doca Baseado na Data EM do SAP"""
     if df.empty: 
         df['SLA'] = []
         return df
@@ -236,6 +240,27 @@ def calcular_sla_pandas(df):
         else: return "🟢 NO PRAZO"
     df['SLA'] = df.apply(classificar_regra, axis=1)
     return df.drop(columns=['data_real', 'dias_parado'])
+
+def calcular_sla_acondicionamento(df):
+    """Calcula o SLA de 24h do Almoxarifado após o Despacho da Doca"""
+    if df.empty or 'data_hora_despacho' not in df.columns: 
+        df['SLA_Interno'] = []
+        return df
+    
+    df['dh_despacho'] = pd.to_datetime(df['data_hora_despacho'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+    hoje_agora = pd.Timestamp(datetime.now())
+    
+    # Diferença em Horas
+    df['horas_transito'] = (hoje_agora - df['dh_despacho']).dt.total_seconds() / 3600
+    
+    def classificar_sla_int(row):
+        if pd.isna(row['horas_transito']): return "⚪ N/A"
+        if row['horas_transito'] > 24: return "🔴 ATRASADO (>24h)"
+        elif row['horas_transito'] > 12: return "🟡 ATENÇÃO (>12h)"
+        else: return "🟢 NO PRAZO (<24h)"
+        
+    df['SLA_Interno'] = df.apply(classificar_sla_int, axis=1)
+    return df.drop(columns=['dh_despacho', 'horas_transito'])
 
 def gerar_proximo_lote():
     with engine.connect() as conn:
@@ -265,7 +290,6 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     elementos.append(Spacer(1, 20))
     
     dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "Nota Fiscal", "Fornecedor"]]
-    
     for _, row in df_itens.iterrows():
         dados_tabela.append([str(row['material']), str(row['descricao'])[:45], str(row['estoque']), str(row['posicao_dep']), str(row['nfe']), str(row['fornecedor'])[:35]])
         
@@ -301,14 +325,15 @@ config_colunas_gerais = {
     "lote_envio": st.column_config.TextColumn("Lote", width="small"),
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Separador", width="medium"),
-    "SLA": st.column_config.TextColumn("Status SLA", width="medium"),
+    "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
+    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"), # 🚀 NOVA COLUNA AQUI
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
     "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
     "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
     "nfe": st.column_config.TextColumn("NF", width="medium"),
     "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
-    "status_envio": st.column_config.TextColumn("Situação Atual", width="medium") # Mudei para aparecer bonito na tabela!
+    "data_hora_despacho": st.column_config.TextColumn("Hora Despacho", width="medium")
 }
 
 # ==========================================
@@ -317,12 +342,10 @@ config_colunas_gerais = {
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
 
-# 🚀 AGORA A GENTE LÊ TUDO DA DOCA E O QUE TÁ NO CAMINHÃO (Em Trânsito) PARA A TELA 1!
 query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-# Dashboard considera apenas os "Pendentes" (o que ainda está fisicamente na doca)
 df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.empty else pd.DataFrame()
 
 if not df_dashboard.empty:
@@ -345,6 +368,7 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
 # ABA 1: DESPACHO PELA DOCA
 # ------------------------------------------
 with aba_recebimento:
+    
     if st.session_state["pdf_pronto"] is not None:
         st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
         st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
@@ -376,10 +400,9 @@ with aba_recebimento:
             else:
                 df_tela = df_bruto.copy()
                 
-                # 🚀 TRANSFORMA O STATUS PARA FICAR CLARO NA TELA
                 df_tela['status_envio'] = df_tela['status_envio'].replace({
                     'Pendente': '🟢 AGUARDANDO DOCA',
-                    'Em Trânsito Interno': '🚚 JÁ DESPACHADO (Aguard. Almox)'
+                    'Em Trânsito Interno': '🚚 JÁ DESPACHADO'
                 })
                 
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
@@ -432,28 +455,24 @@ with aba_recebimento:
                                 
                             with col_btn4:
                                 st.write("") 
-                                if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
-                                    # 🚀 TRAVA ANTI-BURRICE AQUI!
-                                    # Verifica se tem algum item selecionado que já está em trânsito
+                                if st.button(f"🖨️ Despachar e Gerar PDF", type="primary", use_container_width=True):
                                     itens_selecionados_df = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
-                                    itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO (Aguard. Almox)']
+                                    itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO']
                                     
-                                    if qtd_carrinho == 0: 
-                                        st.error("Carrinho vazio!")
-                                    elif not itens_ja_despachados.empty:
-                                        st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO. Desmarque os itens com caminhãozinho para prosseguir!")
-                                    elif operador_selecionado == "-- Selecione o Operador --": 
-                                        st.error("Selecione o Operador!")
-                                    elif deposito_selecionado == "-- Selecione o Destino --": 
-                                        st.error("Selecione o Destino!")
+                                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
+                                    elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO!")
+                                    elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
+                                    elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
                                     else:
                                         novo_lote = gerar_proximo_lote()
                                         df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
                                         
+                                        agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S') # 🚀 CARIMBO DO TEMPO DE DESPACHO!
+                                        
                                         with engine.connect() as conn:
                                             for id_peca in st.session_state["carrinho_expedicao"]:
-                                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep WHERE id = :id_peca"), 
-                                                             {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "id_peca": int(id_peca)})
+                                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
+                                                             {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
                                             conn.commit()
                                         
                                         pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
@@ -463,14 +482,17 @@ with aba_recebimento:
                             st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR 
+# ABA 2: ACONDICIONAR (ALMOXARIFADO LENDO LOTES E GERAL)
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
         st.error("⛔ Acesso Restrito: O seu perfil é da **Doca**. Você não pode acondicionar materiais.")
     else:
-        query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
+        query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
         df_rec = pd.read_sql_query(query_rec, engine)
+        
+        # 🚀 APLICA O NOVO CÁLCULO DE SLA DE 24H
+        df_rec = calcular_sla_acondicionamento(df_rec)
         
         if df_rec.empty: st.success("Nenhuma carga em trânsito internamente no momento.")
         else:
@@ -482,8 +504,10 @@ with aba_almoxarifado:
             
             area_botoes_recebimento = st.container()
             
-            if lote_selecionado == "Mostrar Todos os Lotes Pendentes": df_lote = df_rec.copy()
-            else: df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
+            if lote_selecionado == "Mostrar Todos os Lotes Pendentes":
+                df_lote = df_rec.copy()
+            else:
+                df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
             
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
@@ -528,7 +552,7 @@ with aba_almoxarifado:
 # ------------------------------------------
 with aba_historico:
     st.markdown("### 💾 Base de Dados Histórica")
-    query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, id, material, descricao, estoque, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
+    query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
@@ -614,9 +638,9 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES E EM TRÂNSITO (Manter Histórico)"):
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
