@@ -5,9 +5,8 @@ import time
 from datetime import datetime
 import io
 
-# Importações para o PDF (ReportLab)
 try:
-    from reportlab.lib.pagesizes import A4, landscape  # 🚀 IMPORTANTE: 'landscape' deita a folha
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
@@ -197,7 +196,8 @@ if st.session_state["perfil_atual"] == "Admin":
                     df_banco = pd.read_sql_query(query_banco, engine)
                     
                     chaves_no_banco = set(df_banco['chave_banco'])
-                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'] == 'Pendente']['chave_banco'])
+                    # O Robô agora considera "Pendente" ou "Em Trânsito Interno" para não duplicar e não sumir com o que a doca já enviou!
+                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'].isin(['Pendente', 'Em Trânsito Interno'])]['chave_banco'])
                     chaves_do_sap = set(df_pb['chave_comparacao'])
 
                     df_inserir = df_pb[~df_pb['chave_comparacao'].isin(chaves_no_banco)].copy()
@@ -210,7 +210,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     if chaves_sumiram:
                         with engine.connect() as conn:
                             for chave in chaves_sumiram:
-                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio = 'Pendente' AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
+                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio IN ('Pendente', 'Em Trânsito Interno') AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
                             conn.commit()
 
                     st.sidebar.success(f"✅ Sincronizado! \n{len(df_inserir)} novos.\n{len(chaves_sumiram)} baixados.")
@@ -218,7 +218,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
+# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO)
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -243,15 +243,12 @@ def gerar_proximo_lote():
         if not ultimo_lote: return "00000000001"
         else: return str(int(ultimo_lote) + 1).zfill(11)
 
-# 📄 GERADOR DO PDF (ORIENTAÇÃO PAISAGEM - ESTILO SAP ALV)
 def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer = io.BytesIO()
-    # Usa "landscape(A4)" para deitar a folha
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     elementos = []
     estilos = getSampleStyleSheet()
     
-    # Estilos limpos (Preto e Branco / Cinza)
     estilo_titulo = ParagraphStyle(name='TituloSAP', fontName='Helvetica-Bold', fontSize=14, textColor=colors.black, alignment=1)
     estilo_info = ParagraphStyle(name='InfoSAP', fontName='Helvetica', fontSize=10, textColor=colors.black)
     
@@ -267,23 +264,12 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     elementos.append(Paragraph(info_html, estilo_info))
     elementos.append(Spacer(1, 20))
     
-    # Cabeçalho da Tabela
     dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "Nota Fiscal", "Fornecedor"]]
     
     for _, row in df_itens.iterrows():
-        dados_tabela.append([
-            str(row['material']), 
-            str(row['descricao'])[:45], # Limita caracteres para caber
-            str(row['estoque']), 
-            str(row['posicao_dep']), 
-            str(row['nfe']),
-            str(row['fornecedor'])[:35] # Limita caracteres para caber
-        ])
+        dados_tabela.append([str(row['material']), str(row['descricao'])[:45], str(row['estoque']), str(row['posicao_dep']), str(row['nfe']), str(row['fornecedor'])[:35]])
         
-    # As larguras somam 800 pontos, que é a largura exata de uma folha A4 deitada
     tabela = Table(dados_tabela, colWidths=[80, 260, 50, 80, 110, 220])
-    
-    # Design Padrão SAP (Cabeçalho cinza claro, bordas pretas finas)
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0E0E0')),
         ('TEXTCOLOR', (0,0), (-1,0), colors.black),
@@ -292,25 +278,19 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
         ('FONTSIZE', (0,0), (-1,0), 9),
         ('BOTTOMPADDING', (0,0), (-1,0), 6),
         ('TOPPADDING', (0,0), (-1,0), 6),
-        
         ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
         ('FONTSIZE', (0,1), (-1,-1), 8),
-        ('ALIGN', (2,1), (2,-1), 'CENTER'), # Centraliza Qtd
-        ('ALIGN', (3,1), (3,-1), 'CENTER'), # Centraliza Posição
+        ('ALIGN', (2,1), (2,-1), 'CENTER'),
+        ('ALIGN', (3,1), (3,-1), 'CENTER'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     elementos.append(tabela)
-    
     elementos.append(Spacer(1, 50))
-    assinaturas = [
-        ["______________________________________________", "______________________________________________"],
-        [f"Visto Expedição ({operador})", f"Visto Recebimento ({destino})"]
-    ]
+    assinaturas = [["______________________________________________", "______________________________________________"], [f"Visto Expedição ({operador})", f"Visto Recebimento ({destino})"]]
     tab_ass = Table(assinaturas, colWidths=[400, 400])
     tab_ass.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,-1), 'Helvetica'), ('FONTSIZE', (0,0), (-1,-1), 9)]))
     elementos.append(tab_ass)
-    
     doc.build(elementos)
     buffer.seek(0)
     return buffer.getvalue()
@@ -327,7 +307,8 @@ config_colunas_gerais = {
     "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
     "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
     "nfe": st.column_config.TextColumn("NF", width="medium"),
-    "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium")
+    "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
+    "status_envio": st.column_config.TextColumn("Situação Atual", width="medium") # Mudei para aparecer bonito na tabela!
 }
 
 # ==========================================
@@ -336,17 +317,21 @@ config_colunas_gerais = {
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
 
-query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
+# 🚀 AGORA A GENTE LÊ TUDO DA DOCA E O QUE TÁ NO CAMINHÃO (Em Trânsito) PARA A TELA 1!
+query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-if not df_bruto.empty:
+# Dashboard considera apenas os "Pendentes" (o que ainda está fisicamente na doca)
+df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.empty else pd.DataFrame()
+
+if not df_dashboard.empty:
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total na Doca</div><div class='kpi-valor'>{len(df_bruto)}</div></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
-    c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
-    c4.markdown(f"<div class='kpi-card kpi-vermelho'><div class='kpi-titulo'>Crítico (>7d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🔴 URGENTE (>7d)'])}</div></div>", unsafe_allow_html=True)
-    c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
+    c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total na Doca</div><div class='kpi-valor'>{len(df_dashboard)}</div></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
+    c4.markdown(f"<div class='kpi-card kpi-vermelho'><div class='kpi-titulo'>Crítico (>7d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🔴 URGENTE (>7d)'])}</div></div>", unsafe_allow_html=True)
+    c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
     st.write("")
 
 aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
@@ -360,22 +345,15 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
 # ABA 1: DESPACHO PELA DOCA
 # ------------------------------------------
 with aba_recebimento:
-    
-    # 🌟 SE EXISTIR UM PDF GERADO, MOSTRA A TELA DE SUCESSO
     if st.session_state["pdf_pronto"] is not None:
         st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
         st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
         st.write("Imprima a Guia de Transferência de Material (padrão SAP) e anexe fisicamente à carga.")
-        
         st.download_button(
             label="🖨️ Baixar Guia de Remessa (PDF)",
-            data=st.session_state["pdf_pronto"]["bytes"],
-            file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True
+            data=st.session_state["pdf_pronto"]["bytes"], file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
+            mime="application/pdf", type="primary", use_container_width=True
         )
-        
         st.divider()
         if st.button("🔄 Voltar para a Tela de Expedição", use_container_width=True):
             st.session_state["pdf_pronto"] = None
@@ -383,14 +361,13 @@ with aba_recebimento:
         st.markdown("</div>", unsafe_allow_html=True)
         
     else:
-        # TELA NORMAL DE EXPEDIÇÃO
         if st.session_state["perfil_atual"] == "Almoxarifado":
             st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
                 col_b1, col_b2 = st.columns([3, 1])
-                busca_global = col_b1.text_input("🔎 Pesquise o material que chegou (NF, Material, Fornecedor):", placeholder="Ex: NF-1234...")
+                busca_global = col_b1.text_input("🔎 Pesquise o material (NF, Material, Fornecedor):", placeholder="Ex: NF-1234...")
                 filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -398,6 +375,13 @@ with aba_recebimento:
                 st.success("Tudo limpo! Nenhuma carga na Doca para despachar.")
             else:
                 df_tela = df_bruto.copy()
+                
+                # 🚀 TRANSFORMA O STATUS PARA FICAR CLARO NA TELA
+                df_tela['status_envio'] = df_tela['status_envio'].replace({
+                    'Pendente': '🟢 AGUARDANDO DOCA',
+                    'Em Trânsito Interno': '🚚 JÁ DESPACHADO (Aguard. Almox)'
+                })
+                
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 if busca_global:
                     mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
@@ -406,7 +390,7 @@ with aba_recebimento:
                 if df_tela.empty:
                     st.warning("Nenhum material encontrado com os filtros atuais.")
                 else:
-                    colunas_visiveis = ['id', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
+                    colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
                     
                     if st.session_state["perfil_atual"] == "Almoxarifado":
@@ -449,13 +433,21 @@ with aba_recebimento:
                             with col_btn4:
                                 st.write("") 
                                 if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
-                                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                                    elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
-                                    elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
+                                    # 🚀 TRAVA ANTI-BURRICE AQUI!
+                                    # Verifica se tem algum item selecionado que já está em trânsito
+                                    itens_selecionados_df = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
+                                    itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO (Aguard. Almox)']
+                                    
+                                    if qtd_carrinho == 0: 
+                                        st.error("Carrinho vazio!")
+                                    elif not itens_ja_despachados.empty:
+                                        st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO. Desmarque os itens com caminhãozinho para prosseguir!")
+                                    elif operador_selecionado == "-- Selecione o Operador --": 
+                                        st.error("Selecione o Operador!")
+                                    elif deposito_selecionado == "-- Selecione o Destino --": 
+                                        st.error("Selecione o Destino!")
                                     else:
                                         novo_lote = gerar_proximo_lote()
-                                        
-                                        # Pega os dados exatos pro PDF
                                         df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
                                         
                                         with engine.connect() as conn:
@@ -464,9 +456,7 @@ with aba_recebimento:
                                                              {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "id_peca": int(id_peca)})
                                             conn.commit()
                                         
-                                        # GERA O PDF COM A FUNÇÃO NOVA
                                         pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
-                                        
                                         st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
                                         st.session_state["carrinho_expedicao"] = []
                                         st.rerun()
@@ -492,10 +482,8 @@ with aba_almoxarifado:
             
             area_botoes_recebimento = st.container()
             
-            if lote_selecionado == "Mostrar Todos os Lotes Pendentes":
-                df_lote = df_rec.copy()
-            else:
-                df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
+            if lote_selecionado == "Mostrar Todos os Lotes Pendentes": df_lote = df_rec.copy()
+            else: df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
             
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
