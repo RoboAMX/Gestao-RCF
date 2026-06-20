@@ -33,38 +33,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. CONEXÃO COM O BANCO E GARANTIA DE TABELAS
+# 1. CONEXÃO COM O BANCO DE DADOS
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-# 🚀 TIREI O 'IF' DA MEMÓRIA PARA ELE GARANTIR A CRIAÇÃO SEMPRE!
-with engine.connect() as conn:
-    conn.execute(text('''
-        CREATE TABLE IF NOT EXISTS expedicao_completa (
-            id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
-            centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
-            posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
-            nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
-        )
-    '''))
-    
-    conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
-    
-    conn.execute(text('''
-        CREATE TABLE IF NOT EXISTS depositos_destino (
-            id SERIAL PRIMARY KEY,
-            nome_deposito TEXT UNIQUE,
-            responsavel TEXT
-        )
-    '''))
-    conn.commit()
-
-    if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
-        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
-        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
+if "db_verificado" not in st.session_state:
+    with engine.connect() as conn:
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS expedicao_completa (
+                id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
+                centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
+                posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
+                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
+            )
+        '''))
+        conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
+        conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
         conn.commit()
+
+        if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
+            conn.commit()
+    st.session_state["db_verificado"] = True
 
 # ==========================================
 # 2. LOGIN SEGURO E MEMÓRIA
@@ -232,91 +225,97 @@ aba_expedicao, aba_recebedor, aba_historico, aba_admin = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: EXPEDIÇÃO
+# ABA 1: EXPEDIÇÃO (BLOQUEADA PARA RECEBIMENTO)
 # ------------------------------------------
 with aba_expedicao:
-    with st.container():
-        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-        col_b1, col_b2 = st.columns([3, 1])
-        busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
-        filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.write("")
-
-    if df_bruto.empty:
-        st.success("Tudo limpo! Nenhum material pendente para despachar.")
+    if st.session_state["perfil_atual"] == "Recebimento":
+        st.error("⛔ Acesso Restrito: O seu perfil é de **Recebimento na Doca**. Você não tem permissão para despachar materiais. Vá para a aba 2.")
     else:
-        df_tela = df_bruto.copy()
-        
-        if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
-        if busca_global:
-            mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-            df_tela = df_tela[mask]
+        with st.container():
+            st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+            col_b1, col_b2 = st.columns([3, 1])
+            busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
+            filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.write("")
 
-        if df_tela.empty:
-            st.warning("Nenhum material encontrado com os filtros atuais.")
+        if df_bruto.empty:
+            st.success("Tudo limpo! Nenhum material pendente para despachar.")
         else:
-            colunas_visiveis = ['id', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor', 'data_em']
-            df_tela = df_tela[colunas_visiveis]
+            df_tela = df_bruto.copy()
             
-            df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
-            colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
-            
-            df_editado = st.data_editor(
-                df_tela, hide_index=True, use_container_width=True, height=400,
-                disabled=colunas_bloqueadas, column_config=config_colunas_gerais
-            )
-            
-            for index, row in df_editado.iterrows():
-                id_linha = row['id']
-                if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
-                elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+            if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
+            if busca_global:
+                mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                df_tela = df_tela[mask]
 
-            qtd_carrinho = len(st.session_state["carrinho_expedicao"])
-            col_btn1, col_btn2 = st.columns([2, 1])
-            with col_btn1: st.info(f"🛒 **Carrinho de Despacho:** {qtd_carrinho} itens marcados.")
-            with col_btn2:
-                if st.button("🚚 Despachar Carga do Carrinho", type="primary", use_container_width=True):
-                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                    else:
-                        with engine.connect() as conn:
-                            for id_peca in st.session_state["carrinho_expedicao"]:
-                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
-                            conn.commit()
-                        st.session_state["carrinho_expedicao"] = []
-                        st.success("✅ Carga Despachada para a Doca!")
-                        time.sleep(1.5)
-                        st.rerun()
+            if df_tela.empty:
+                st.warning("Nenhum material encontrado com os filtros atuais.")
+            else:
+                colunas_visiveis = ['id', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor', 'data_em']
+                df_tela = df_tela[colunas_visiveis]
+                
+                df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+                colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
+                
+                df_editado = st.data_editor(
+                    df_tela, hide_index=True, use_container_width=True, height=400,
+                    disabled=colunas_bloqueadas, column_config=config_colunas_gerais
+                )
+                
+                for index, row in df_editado.iterrows():
+                    id_linha = row['id']
+                    if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
+                    elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+
+                qtd_carrinho = len(st.session_state["carrinho_expedicao"])
+                col_btn1, col_btn2 = st.columns([2, 1])
+                with col_btn1: st.info(f"🛒 **Carrinho de Despacho:** {qtd_carrinho} itens marcados.")
+                with col_btn2:
+                    if st.button("🚚 Despachar Carga do Carrinho", type="primary", use_container_width=True):
+                        if qtd_carrinho == 0: st.error("Carrinho vazio!")
+                        else:
+                            with engine.connect() as conn:
+                                for id_peca in st.session_state["carrinho_expedicao"]:
+                                    conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
+                                conn.commit()
+                            st.session_state["carrinho_expedicao"] = []
+                            st.success("✅ Carga Despachada para a Doca!")
+                            time.sleep(1.5)
+                            st.rerun()
 
 # ------------------------------------------
-# ABA 2: RECEBIMENTO
+# ABA 2: RECEBIMENTO (BLOQUEADA PARA ALMOXARIFADO)
 # ------------------------------------------
 with aba_recebedor:
-    st.markdown("### 📦 Painel do Recebedor (Em Trânsito)")
-    query_rec = "SELECT id, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Despachado'"
-    df_rec = pd.read_sql_query(query_rec, engine)
-    
-    if df_rec.empty: st.success("Nenhuma carga em trânsito no momento.")
+    if st.session_state["perfil_atual"] == "Almoxarifado":
+        st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Você não tem permissão para confirmar o recebimento na doca destino. Vá para a aba 1.")
     else:
-        df_rec.insert(0, "Chegou_Fisico", False)
-        colunas_bloqueadas_rec = [col for col in df_rec.columns if col != "Chegou_Fisico"]
+        st.markdown("### 📦 Painel do Recebedor (Em Trânsito)")
+        query_rec = "SELECT id, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Despachado'"
+        df_rec = pd.read_sql_query(query_rec, engine)
         
-        df_editado_rec = st.data_editor(
-            df_rec, hide_index=True, use_container_width=True, height=300, 
-            disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais
-        )
-        selecionados_rec = df_editado_rec[df_editado_rec["Chegou_Fisico"] == True]
-        
-        if st.button("✅ Confirmar Recebimento Físico", type="primary"):
-            if selecionados_rec.empty: st.error("Marque as caixinhas dos materiais que você conferiu!")
-            else:
-                with engine.connect() as conn:
-                    for id_peca in selecionados_rec["id"]:
-                        conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Recebido' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
-                    conn.commit()
-                st.success("Baixa realizada! Material encerrado.")
-                time.sleep(1.5)
-                st.rerun()
+        if df_rec.empty: st.success("Nenhuma carga em trânsito no momento.")
+        else:
+            df_rec.insert(0, "Chegou_Fisico", False)
+            colunas_bloqueadas_rec = [col for col in df_rec.columns if col != "Chegou_Fisico"]
+            
+            df_editado_rec = st.data_editor(
+                df_rec, hide_index=True, use_container_width=True, height=300, 
+                disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais
+            )
+            selecionados_rec = df_editado_rec[df_editado_rec["Chegou_Fisico"] == True]
+            
+            if st.button("✅ Confirmar Recebimento Físico", type="primary"):
+                if selecionados_rec.empty: st.error("Marque as caixinhas dos materiais que você conferiu!")
+                else:
+                    with engine.connect() as conn:
+                        for id_peca in selecionados_rec["id"]:
+                            conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Recebido' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
+                        conn.commit()
+                    st.success("Baixa realizada! Material encerrado.")
+                    time.sleep(1.5)
+                    st.rerun()
 
 # ------------------------------------------
 # ABA 3: HISTÓRICO
@@ -337,7 +336,6 @@ with aba_admin:
         st.error("⛔ Acesso Restrito aos Administradores.")
     else:
         st.markdown("### ⚙️ Painel de Controle Avançado")
-        
         tab_usuarios, tab_depositos, tab_sistema = st.tabs(["👥 Gestão de Usuários", "🏭 Depósitos Destino", "⚠️ Zona de Risco"])
         
         with tab_usuarios:
