@@ -18,36 +18,29 @@ st.set_page_config(page_title="Portal Logístico WEG", layout="wide", initial_si
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-        
-        /* 🔵 O NOVO FUNDO AZUL WEG (TOM CLARO E SUAVE) 🔵 */
-        .stApp { background-color: #E6F0F9; }
-        
-        h1, h2, h3 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
+        .stApp { background-color: #f4f6f9; }
+        h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        
-        /* As caixas brancas vão flutuar por cima do fundo azul! */
-        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); }
+        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.05); }
         .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
         .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
-        
         .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
         .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
         .kpi-roxo .kpi-valor { color: #9c27b0; }
         .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
-        
-        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. CONEXÃO COM O BANCO DE DADOS
+# 1. CONEXÃO COM O BANCO DE DADOS E CRIAÇÃO DE TABELAS
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
 if "db_verificado" not in st.session_state:
     with engine.connect() as conn:
+        # Tabela Principal
         conn.execute(text('''
             CREATE TABLE IF NOT EXISTS expedicao_completa (
                 id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
@@ -56,12 +49,24 @@ if "db_verificado" not in st.session_state:
                 nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
             )
         '''))
+        # Tabela de Usuários
         conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
+        
+        # NOVA TABELA: Depósitos Destino
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS depositos_destino (
+                id SERIAL PRIMARY KEY,
+                nome_deposito TEXT UNIQUE,
+                responsavel TEXT
+            )
+        '''))
         conn.commit()
 
+        # Cria os usuários master padrão se o banco for virgem
         if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
             conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('expedicao', 'senha123', 'Operador')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
             conn.commit()
     st.session_state["db_verificado"] = True
 
@@ -236,7 +241,7 @@ aba_expedicao, aba_recebedor, aba_historico, aba_admin = st.tabs([
 # ------------------------------------------
 with aba_expedicao:
     with st.container():
-        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+        st.markdown("<div style='background: white; padding: 20px; border-radius: 8px; border-top: 4px solid #00579D;'>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns([3, 1])
         busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
         filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
@@ -329,23 +334,116 @@ with aba_historico:
     df_hist = pd.read_sql_query(query_hist, engine)
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
-    else: 
-        st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+    else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO
+# ABA 4: ADMINISTRAÇÃO (USUÁRIOS E DEPÓSITOS)
 # ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
     else:
-        st.markdown("### ⚙️ Painel de Controle")
-        st.warning("⚠️ O botão abaixo zera a tabela de testes. Use antes de sincronizar o SAP.")
-        if st.button("🗑️ ZERAR BANCO DE DADOS INTEIRO"):
-            with engine.connect() as conn:
-                conn.execute(text("DELETE FROM expedicao_completa"))
-                conn.commit()
-            st.session_state["carrinho_expedicao"] = []
-            st.success("Tabela apagada! Agora você pode sincronizar o SAP.")
-            time.sleep(1.5)
-            st.rerun()
+        st.markdown("### ⚙️ Painel de Controle Avançado")
+        
+        # Criação de Sub-Abas para organizar a bagunça do Admin
+        tab_usuarios, tab_depositos, tab_sistema = st.tabs(["👥 Gestão de Usuários", "🏭 Depósitos Destino", "⚠️ Zona de Risco (Sistema)"])
+        
+        # SUB-ABA 1: USUÁRIOS
+        with tab_usuarios:
+            st.markdown("#### Cadastrar Novo Usuário")
+            with st.form("form_novo_usuario"):
+                col_u1, col_u2, col_u3 = st.columns(3)
+                novo_usu = col_u1.text_input("Login do Usuário")
+                nova_senha = col_u2.text_input("Senha", type="password")
+                novo_perfil = col_u3.selectbox("Perfil de Acesso", ["Almoxarifado", "Recebimento", "Admin"])
+                
+                if st.form_submit_button("Salvar Usuário"):
+                    if novo_usu and nova_senha:
+                        try:
+                            with engine.connect() as conn:
+                                conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, :s, :p)"), {"u": novo_usu.lower(), "s": nova_senha, "p": novo_perfil})
+                                conn.commit()
+                            st.success(f"Usuário {novo_usu} cadastrado com sucesso!")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error("Erro: Este usuário já existe!")
+                    else:
+                        st.warning("Preencha todos os campos!")
+            
+            st.markdown("#### Usuários Atuais")
+            df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", engine)
+            st.dataframe(df_usuarios, hide_index=True, use_container_width=True)
+            
+            # Botão simples para excluir usuário
+            usu_deletar = st.selectbox("Selecione um usuário para remover:", [""] + df_usuarios['usuario'].tolist())
+            if st.button("🗑️ Excluir Usuário Selecionado") and usu_deletar:
+                if usu_deletar == "roberto":
+                    st.error("Você não pode excluir a si mesmo!")
+                else:
+                    with engine.connect() as conn:
+                        conn.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usu_deletar})
+                        conn.commit()
+                    st.success("Usuário removido!")
+                    time.sleep(1)
+                    st.rerun()
+
+        # SUB-ABA 2: DEPÓSITOS
+        with tab_depositos:
+            st.markdown("#### Cadastrar Novo Depósito Destino")
+            st.info("Aqui você cadastra para onde os materiais vão e quem é a Liderança que vai receber e-mails de alerta.")
+            with st.form("form_novo_deposito"):
+                col_d1, col_d2 = st.columns(2)
+                novo_deposito = col_d1.text_input("Nome do Setor/Depósito (Ex: Montagem Motor)")
+                novo_responsavel = col_d2.text_input("Nome do Responsável / Líder")
+                
+                if st.form_submit_button("Salvar Depósito"):
+                    if novo_deposito and novo_responsavel:
+                        try:
+                            with engine.connect() as conn:
+                                conn.execute(text("INSERT INTO depositos_destino (nome_deposito, responsavel) VALUES (:n, :r)"), {"n": novo_deposito, "r": novo_responsavel})
+                                conn.commit()
+                            st.success(f"Depósito {novo_deposito} cadastrado!")
+                            time.sleep(1)
+                            st.rerun()
+                        except:
+                            st.error("Este depósito já existe.")
+                    else:
+                        st.warning("Preencha todos os campos!")
+            
+            st.markdown("#### Depósitos Cadastrados")
+            df_depositos = pd.read_sql_query("SELECT * FROM depositos_destino ORDER BY id", engine)
+            if not df_depositos.empty:
+                st.dataframe(df_depositos, hide_index=True, use_container_width=True)
+                
+                dep_deletar = st.selectbox("Remover depósito:", [""] + df_depositos['nome_deposito'].tolist())
+                if st.button("🗑️ Excluir Depósito") and dep_deletar:
+                    with engine.connect() as conn:
+                        conn.execute(text("DELETE FROM depositos_destino WHERE nome_deposito = :d"), {"d": dep_deletar})
+                        conn.commit()
+                    st.success("Depósito removido!")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.warning("Nenhum depósito cadastrado ainda.")
+
+        # SUB-ABA 3: ZONA DE RISCO (Banco de Dados)
+        with tab_sistema:
+            st.warning("⚠️ Cuidado: As ações abaixo afetam o banco de dados oficial do sistema.")
+            if st.button("🔄 Resetar Status de Todos os Materiais (Devolver para Pendente)"):
+                with engine.connect() as conn:
+                    conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
+                    conn.commit()
+                st.session_state["carrinho_expedicao"] = []
+                st.success("Status resetados com sucesso!")
+                time.sleep(1.5)
+                st.rerun()
+                
+            if st.button("🗑️ ZERAR BANCO DE DADOS INTEIRO"):
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM expedicao_completa"))
+                    conn.commit()
+                st.session_state["carrinho_expedicao"] = []
+                st.success("Tabela de materiais apagada! Você pode sincronizar o SAP novamente.")
+                time.sleep(1.5)
+                st.rerun()
