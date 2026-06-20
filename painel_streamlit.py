@@ -11,7 +11,7 @@ except ModuleNotFoundError:
     robo_disponivel = False
 
 # ==========================================
-# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS (NOVO CARTÃO ROXO)
+# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS
 # ==========================================
 st.set_page_config(page_title="Portal Logístico WEG", layout="wide", initial_sidebar_state="expanded")
 
@@ -22,20 +22,14 @@ st.markdown("""
         h1, h2, h3 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        
-        .kpi-card { background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.05); }
-        .kpi-valor { font-size: 32px; font-weight: bold; margin-bottom: 5px; }
-        .kpi-titulo { font-size: 13px; color: #666; font-weight: bold; text-transform: uppercase; }
-        
-        /* Cores dos Cartões do Dashboard */
-        .kpi-azul .kpi-valor { color: #00579D; } 
-        .kpi-verde .kpi-valor { color: #2e7d32; }
-        .kpi-amarelo .kpi-valor { color: #f57c00; } 
-        .kpi-vermelho .kpi-valor { color: #d32f2f; }
+        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.05); }
+        .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
+        .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
+        .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
+        .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
         .kpi-roxo .kpi-valor { color: #9c27b0; }
-        
-        .kpi-vermelho { border-bottom: 4px solid #d32f2f; }
-        .kpi-roxo { border-bottom: 4px solid #9c27b0; }
+        .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
+        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); border-top: 4px solid #00579D; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -65,12 +59,13 @@ if "db_verificado" not in st.session_state:
     st.session_state["db_verificado"] = True
 
 # ==========================================
-# 2. LOGIN E MEMÓRIA
+# 2. LOGIN SEGURO E MEMÓRIA
 # ==========================================
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
+
 if "carrinho_expedicao" not in st.session_state:
     st.session_state["carrinho_expedicao"] = []
 
@@ -96,7 +91,7 @@ if not st.session_state["logado"]:
     st.stop()
 
 # ==========================================
-# 3. MENU LATERAL
+# 3. MENU LATERAL E ROBÔ
 # ==========================================
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/WEG_logo.svg/1200px-WEG_logo.svg.png", width=100)
 st.sidebar.markdown(f"👨‍💻 Logado: **{st.session_state['usuario_atual'].upper()}**")
@@ -108,7 +103,6 @@ if st.sidebar.button("🚪 Sair do Sistema"):
 
 st.sidebar.divider()
 
-# Botão de emergência para o Admin puxar carga manual (além do loop automático)
 def limpar_sujeira_sap(valor):
     if pd.isna(valor): return ''
     v = str(valor).strip().upper()
@@ -117,9 +111,9 @@ def limpar_sujeira_sap(valor):
     return v
 
 if st.session_state["perfil_atual"] == "Admin":
-    st.sidebar.markdown("### 🤖 Sincronização Manual")
+    st.sidebar.markdown("### 🤖 Robô Sincronizador")
     if robo_disponivel:
-        if st.sidebar.button("⚡ Sincronizar com SAP Agora"):
+        if st.sidebar.button("⚡ Sincronizar com SAP"):
             with st.spinner("Extraindo e comparando dados..."):
                 dados_novos = agente_almoxweb.extrair_dados_almoxweb()
                 if dados_novos:
@@ -171,7 +165,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. MOTOR DE CÁLCULO DE SLA
+# 4. MOTOR DE CÁLCULO DE SLA E OTIMIZAÇÃO DE COLUNAS
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -188,55 +182,67 @@ def calcular_sla_pandas(df):
         elif row['dias_parado'] > 3: return "🟡 ATENÇÃO (>3d)"
         else: return "🟢 NO PRAZO"
     df['SLA'] = df.apply(classificar_regra, axis=1)
-    
     return df.drop(columns=['data_real', 'dias_parado'])
 
+
+# 🛠️ CONFIGURAÇÕES DE LARGURA DE COLUNAS (DESIGN DE ESPAÇO)
+config_colunas_gerais = {
+    "Selecionar": st.column_config.CheckboxColumn("☑️", width="small"),
+    "Chegou_Fisico": st.column_config.CheckboxColumn("☑️ Recebido?", width="small"),
+    "id": st.column_config.NumberColumn("ID", width="small"),
+    "SLA": st.column_config.TextColumn("Status SLA", width="medium"),
+    "material": st.column_config.TextColumn("Material", width="small"),
+    "descricao": st.column_config.TextColumn("Descrição do Item", width="large"), # Ocupa mais espaço
+    "estoque": st.column_config.NumberColumn("Qtd", width="small"),              # Espaço reduzido
+    "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
+    "nfe": st.column_config.TextColumn("NF", width="medium"),
+    "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
+    "data_em": st.column_config.TextColumn("Data EM", width="small"),
+    "status_envio": st.column_config.TextColumn("Status Carga", width="small")
+}
+
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD + ABAS)
+# 5. TELA PRINCIPAL E ABAS
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Logístico Central</h1>", unsafe_allow_html=True)
-with col_topo2: st.markdown(f"<div style='text-align: right; padding-top:20px; color:#666;'>Data Atual: <b>{datetime.now().strftime('%d/%m/%Y')}</b></div>", unsafe_allow_html=True)
 
 query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-# --- DASHBOARD COM 5 CARDS AGORA ---
+# DASHBOARD DE TOPO
 if not df_bruto.empty:
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total</div><div class='kpi-valor'>{len(df_bruto)}</div></div>", unsafe_allow_html=True)
+    c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total Pendente</div><div class='kpi-valor'>{len(df_bruto)}</div></div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
     c4.markdown(f"<div class='kpi-card kpi-vermelho'><div class='kpi-titulo'>Crítico (>7d)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🔴 URGENTE (>7d)'])}</div></div>", unsafe_allow_html=True)
-    # NOVO CARTÃO ROXO AQUI 👇
     c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_bruto[df_bruto['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
     st.write("")
 
 aba_expedicao, aba_recebedor, aba_historico, aba_admin = st.tabs([
-    "📋 1. EXPEDIÇÃO (Despachar)", 
-    "📦 2. RECEBIMENTO (Doca)", 
-    "💾 3. HISTÓRICO GERAL", 
-    "⚙️ 4. ADMINISTRAÇÃO"
+    "📋 1. EXPEDIÇÃO (Despachar)", "📦 2. RECEBIMENTO (Doca)", "💾 3. HISTÓRICO GERAL", "⚙️ 4. ADMINISTRAÇÃO"
 ])
 
 # ------------------------------------------
-# ABA 1: EXPEDIÇÃO (TABELA E CARRINHO)
+# ABA 1: EXPEDIÇÃO
 # ------------------------------------------
 with aba_expedicao:
-    
-    col_b1, col_b2 = st.columns([3, 1])
-    busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
-    filtro_sla = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
-    st.divider()
+    with st.container():
+        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+        col_b1, col_b2 = st.columns([3, 1])
+        busca_global = col_b1.text_input("🔎 Pesquise (Material, NF, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
+        filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.write("")
 
     if df_bruto.empty:
         st.success("Tudo limpo! Nenhum material pendente para despachar.")
     else:
         df_tela = df_bruto.copy()
         
-        if filtro_sla != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_sla]
-
+        if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
         if busca_global:
             mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
             df_tela = df_tela[mask]
@@ -248,23 +254,23 @@ with aba_expedicao:
             df_tela = df_tela[colunas_visiveis]
             
             df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+            colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
             
+            # AQUI APLICAMOS A CONFIGURAÇÃO DE LARGURAS
             df_editado = st.data_editor(
                 df_tela, hide_index=True, use_container_width=True, height=400,
-                disabled=colunas_visiveis,
-                column_config={"SLA": st.column_config.TextColumn("Status SLA", width="medium")}
+                disabled=colunas_bloqueadas,
+                column_config=config_colunas_gerais
             )
             
             for index, row in df_editado.iterrows():
                 id_linha = row['id']
-                if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]:
-                    st.session_state["carrinho_expedicao"].append(id_linha)
-                elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]:
-                    st.session_state["carrinho_expedicao"].remove(id_linha)
+                if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
+                elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
 
             qtd_carrinho = len(st.session_state["carrinho_expedicao"])
             col_btn1, col_btn2 = st.columns([2, 1])
-            with col_btn1: st.info(f"🛒 **Carrinho de Despacho:** {qtd_carrinho} itens marcados para envio.")
+            with col_btn1: st.info(f"🛒 **Carrinho de Despacho:** {qtd_carrinho} itens marcados.")
             with col_btn2:
                 if st.button("🚚 Despachar Carga do Carrinho", type="primary", use_container_width=True):
                     if qtd_carrinho == 0: st.error("Carrinho vazio!")
@@ -274,35 +280,33 @@ with aba_expedicao:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Despachado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
                             conn.commit()
                         st.session_state["carrinho_expedicao"] = []
-                        st.success("✅ Carga Despachada para a Doca de Recebimento!")
+                        st.success("✅ Carga Despachada para a Doca!")
                         time.sleep(1.5)
                         st.rerun()
 
 # ------------------------------------------
-# ABA 2: RECEBIMENTO (DOCA)
+# ABA 2: RECEBIMENTO
 # ------------------------------------------
 with aba_recebedor:
     st.markdown("### 📦 Painel do Recebedor (Em Trânsito)")
-    st.write("Materiais despachados pela expedição aguardando conferência na doca.")
-    
-    query_rec = "SELECT id, material, descricao, estoque, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Despachado'"
+    query_rec = "SELECT id, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Despachado'"
     df_rec = pd.read_sql_query(query_rec, engine)
     
-    if df_rec.empty:
-        st.success("Nenhuma carga em trânsito no momento.")
+    if df_rec.empty: st.success("Nenhuma carga em trânsito no momento.")
     else:
         df_rec.insert(0, "Chegou_Fisico", False)
+        colunas_bloqueadas_rec = [col for col in df_rec.columns if col != "Chegou_Fisico"]
         
+        # AQUI APLICAMOS A LARGURA TAMBÉM
         df_editado_rec = st.data_editor(
-            df_rec, hide_index=True, use_container_width=True, height=300,
-            disabled=["id", "material", "descricao", "estoque", "nfe", "fornecedor", "status_envio"]
+            df_rec, hide_index=True, use_container_width=True, height=300, 
+            disabled=colunas_bloqueadas_rec,
+            column_config=config_colunas_gerais
         )
-        
         selecionados_rec = df_editado_rec[df_editado_rec["Chegou_Fisico"] == True]
         
         if st.button("✅ Confirmar Recebimento Físico", type="primary"):
-            if selecionados_rec.empty:
-                st.error("Marque as caixinhas dos materiais que você conferiu!")
+            if selecionados_rec.empty: st.error("Marque as caixinhas dos materiais que você conferiu!")
             else:
                 with engine.connect() as conn:
                     for id_peca in selecionados_rec["id"]:
@@ -313,40 +317,32 @@ with aba_recebedor:
                 st.rerun()
 
 # ------------------------------------------
-# ABA 3: HISTÓRICO GERAL
+# ABA 3: HISTÓRICO
 # ------------------------------------------
 with aba_historico:
     st.markdown("### 💾 Base de Dados Histórica")
-    query_hist = "SELECT id, material, descricao, estoque, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
+    query_hist = "SELECT id, material, descricao, estoque, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
-    else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400)
+    else: 
+        # AQUI TAMBÉM
+        st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO 
+# ABA 4: ADMINISTRAÇÃO
 # ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
-        st.error("⛔ Acesso Restrito aos Administradores do Sistema.")
+        st.error("⛔ Acesso Restrito aos Administradores.")
     else:
-        st.markdown("### ⚙️ Painel de Controle de TI")
-        st.warning("Área de Risco: Ações aqui afetam o banco de dados oficial.")
-        
-        if st.button("🔄 Resetar Status de Todos os Materiais (Devolver para Pendente)"):
-            with engine.connect() as conn:
-                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
-                conn.commit()
-            st.session_state["carrinho_expedicao"] = []
-            st.success("Banco resetado com sucesso!")
-            time.sleep(1)
-            st.rerun()
-            
-        if st.button("🗑️ Apagar Banco de Dados Inteiro (Zerar Tudo)"):
+        st.markdown("### ⚙️ Painel de Controle")
+        st.warning("⚠️ O botão abaixo zera a tabela de testes. Use antes de sincronizar o SAP.")
+        if st.button("🗑️ ZERAR BANCO DE DADOS INTEIRO"):
             with engine.connect() as conn:
                 conn.execute(text("DELETE FROM expedicao_completa"))
                 conn.commit()
             st.session_state["carrinho_expedicao"] = []
-            st.success("Tabela apagada!")
-            time.sleep(1)
+            st.success("Tabela apagada! Agora você pode sincronizar o SAP.")
+            time.sleep(1.5)
             st.rerun()
