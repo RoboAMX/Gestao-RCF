@@ -61,13 +61,13 @@ if "db_verificado" not in st.session_state:
     st.session_state["db_verificado"] = True
 
 # ==========================================
-# 2. LOGIN SEGURO E MEMÓRIA
+# 2. LOGIN E MEMÓRIA
 # ==========================================
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
-    st.session_state["precisa_mudar_senha"] = False
+    st.session_state["precisa_mudar_senha"] = False # FALTAVA ISSO AQUI!
 
 if "carrinho_expedicao" not in st.session_state:
     st.session_state["carrinho_expedicao"] = []
@@ -90,7 +90,6 @@ if not st.session_state["logado"]:
                     st.session_state["usuario_atual"] = usuario_input
                     st.session_state["perfil_atual"] = resultado[1]
                     
-                    # 🚀 VERIFICA SE A SENHA É A PADRÃO (1234)
                     if senha_input == "1234":
                         st.session_state["precisa_mudar_senha"] = True
                     else:
@@ -135,8 +134,6 @@ if st.session_state["precisa_mudar_senha"]:
                     time.sleep(1.5)
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-    
-    # st.stop() bloqueia o código de carregar o menu lateral e o resto do sistema!
     st.stop()
 
 
@@ -259,7 +256,6 @@ query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-# DASHBOARD DE TOPO
 if not df_bruto.empty:
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total Pendente</div><div class='kpi-valor'>{len(df_bruto)}</div></div>", unsafe_allow_html=True)
@@ -377,7 +373,7 @@ with aba_historico:
     else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO 
+# ABA 4: ADMINISTRAÇÃO
 # ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
@@ -392,7 +388,7 @@ with aba_admin:
                 col_u1, col_u2 = st.columns(2)
                 novo_usu = col_u1.text_input("Login do Usuário")
                 novo_perfil = col_u2.selectbox("Perfil de Acesso", ["Almoxarifado", "Recebimento", "Admin"])
-                st.info("💡 A senha padrão inicial será **1234**. O usuário será obrigado a trocar no primeiro acesso.")
+                st.info("💡 A senha padrão inicial será **1234**.")
                 
                 if st.form_submit_button("Criar Usuário"):
                     if novo_usu:
@@ -400,7 +396,7 @@ with aba_admin:
                             with engine.connect() as conn:
                                 conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, '1234', :p)"), {"u": novo_usu.lower(), "p": novo_perfil})
                                 conn.commit()
-                            st.success(f"Usuário {novo_usu} cadastrado com senha padrão 1234!")
+                            st.success(f"Usuário {novo_usu} cadastrado!")
                             time.sleep(1.5)
                             st.rerun()
                         except: st.error("Erro: Usuário já existe!")
@@ -425,7 +421,7 @@ with aba_admin:
             st.markdown("#### Cadastrar Novo Depósito Destino")
             with st.form("form_novo_deposito"):
                 col_d1, col_d2 = st.columns(2)
-                novo_deposito = col_d1.text_input("Nome do Setor (Ex: Montagem Motor)")
+                novo_deposito = col_d1.text_input("Nome do Setor")
                 novo_responsavel = col_d2.text_input("Líder Responsável")
                 
                 if st.form_submit_button("Salvar Depósito"):
