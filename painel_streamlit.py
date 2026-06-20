@@ -45,48 +45,43 @@ st.markdown("""
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO COM O BANCO DE DADOS
+# 1. CONEXÃO E ATUALIZAÇÃO FORÇADA DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-if "db_verificado" not in st.session_state:
-    with engine.connect() as conn:
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS expedicao_completa (
-                id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
-                centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
-                posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
-                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
-            )
-        '''))
-        try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
-        except: pass
-        try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
-        except: pass
-        try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
-        except: pass
-        
-        # 🚀 NOVA COLUNA: REGISTRO DA HORA DO DESPACHO (Para o SLA de 24h)
-        try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS data_hora_despacho TEXT"))
-        except: pass
-            
-        conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
-        conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
-        conn.execute(text("CREATE TABLE IF NOT EXISTS operadores_fisicos (id SERIAL PRIMARY KEY, nome TEXT UNIQUE)"))
-        conn.commit()
+# 🚀 FORÇANDO A CRIAÇÃO DE COLUNAS SEMPRE (Fora do if da memória)
+with engine.connect() as conn:
+    conn.execute(text('''
+        CREATE TABLE IF NOT EXISTS expedicao_completa (
+            id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
+            centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
+            posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
+            nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
+        )
+    '''))
+    conn.commit()
+    
+    # Garante as colunas extras de forma nativa e segura
+    conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
+    conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
+    conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
+    conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS data_hora_despacho TEXT"))
+    
+    conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
+    conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
+    conn.execute(text("CREATE TABLE IF NOT EXISTS operadores_fisicos (id SERIAL PRIMARY KEY, nome TEXT UNIQUE)"))
+    conn.commit()
 
-        if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '1234', 'Almoxarifado')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '1234', 'Recebimento')"))
-            conn.commit()
-            
-        if conn.execute(text("SELECT COUNT(*) FROM operadores_fisicos")).scalar() == 0:
-            conn.execute(text("INSERT INTO operadores_fisicos (nome) VALUES ('João Silva (Exemplo)')"))
-            conn.commit()
-            
-    st.session_state["db_verificado"] = True
+    if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '1234', 'Almoxarifado')"))
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '1234', 'Recebimento')"))
+        conn.commit()
+        
+    if conn.execute(text("SELECT COUNT(*) FROM operadores_fisicos")).scalar() == 0:
+        conn.execute(text("INSERT INTO operadores_fisicos (nome) VALUES ('João Silva (Exemplo)')"))
+        conn.commit()
 
 # ==========================================
 # 2. LOGIN SEGURO E MEMÓRIA
@@ -221,10 +216,9 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES DE SLA, LOTES E PDF
+# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
 # ==========================================
 def calcular_sla_pandas(df):
-    """Calcula o SLA da Doca Baseado na Data EM do SAP"""
     if df.empty: 
         df['SLA'] = []
         return df
@@ -242,7 +236,6 @@ def calcular_sla_pandas(df):
     return df.drop(columns=['data_real', 'dias_parado'])
 
 def calcular_sla_acondicionamento(df):
-    """Calcula o SLA de 24h do Almoxarifado após o Despacho da Doca"""
     if df.empty or 'data_hora_despacho' not in df.columns: 
         df['SLA_Interno'] = []
         return df
@@ -250,7 +243,6 @@ def calcular_sla_acondicionamento(df):
     df['dh_despacho'] = pd.to_datetime(df['data_hora_despacho'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
     hoje_agora = pd.Timestamp(datetime.now())
     
-    # Diferença em Horas
     df['horas_transito'] = (hoje_agora - df['dh_despacho']).dt.total_seconds() / 3600
     
     def classificar_sla_int(row):
@@ -326,18 +318,18 @@ config_colunas_gerais = {
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Separador", width="medium"),
     "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
-    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"), # 🚀 NOVA COLUNA AQUI
+    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
     "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
     "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
     "nfe": st.column_config.TextColumn("NF", width="medium"),
     "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
-    "data_hora_despacho": st.column_config.TextColumn("Hora Despacho", width="medium")
+    "status_envio": st.column_config.TextColumn("Status Carga", width="small")
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL E DASHBOARD
+# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -368,7 +360,6 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
 # ABA 1: DESPACHO PELA DOCA
 # ------------------------------------------
 with aba_recebimento:
-    
     if st.session_state["pdf_pronto"] is not None:
         st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
         st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
@@ -386,7 +377,7 @@ with aba_recebimento:
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
@@ -399,11 +390,7 @@ with aba_recebimento:
                 st.success("Tudo limpo! Nenhuma carga na Doca para despachar.")
             else:
                 df_tela = df_bruto.copy()
-                
-                df_tela['status_envio'] = df_tela['status_envio'].replace({
-                    'Pendente': '🟢 AGUARDANDO DOCA',
-                    'Em Trânsito Interno': '🚚 JÁ DESPACHADO'
-                })
+                df_tela['status_envio'] = df_tela['status_envio'].replace({'Pendente': '🟢 AGUARDANDO DOCA', 'Em Trânsito Interno': '🚚 JÁ DESPACHADO'})
                 
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 if busca_global:
@@ -421,7 +408,6 @@ with aba_recebimento:
                         st.dataframe(df_tela, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
                     else:
                         area_botoes_expedicao = st.container()
-                        
                         df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
                         colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
                         
@@ -440,34 +426,29 @@ with aba_recebimento:
                             st.markdown("#### 👷 Fechamento do Lote e Geração de Guia")
                             col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
                             
-                            with col_btn1: 
-                                st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
-                                
+                            with col_btn1: st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
                             with col_btn2:
                                 df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
                                 lista_op = ["-- Selecione o Operador --"] + df_operadores['nome'].tolist()
                                 operador_selecionado = st.selectbox("1. Quem separou?", lista_op)
-                                
                             with col_btn3:
                                 df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
                                 lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
                                 deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
-                                
                             with col_btn4:
                                 st.write("") 
-                                if st.button(f"🖨️ Despachar e Gerar PDF", type="primary", use_container_width=True):
+                                if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
                                     itens_selecionados_df = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
                                     itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO']
                                     
                                     if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                                    elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO!")
+                                    elif not itens_ja_despachados.empty: st.error("⚠️ Remova os itens JÁ DESPACHADOS do carrinho!")
                                     elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
                                     elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
                                     else:
                                         novo_lote = gerar_proximo_lote()
                                         df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
-                                        
-                                        agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S') # 🚀 CARIMBO DO TEMPO DE DESPACHO!
+                                        agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                         
                                         with engine.connect() as conn:
                                             for id_peca in st.session_state["carrinho_expedicao"]:
@@ -482,7 +463,7 @@ with aba_recebimento:
                             st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR (ALMOXARIFADO LENDO LOTES E GERAL)
+# ABA 2: ACONDICIONAR 
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
@@ -491,7 +472,6 @@ with aba_almoxarifado:
         query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
         df_rec = pd.read_sql_query(query_rec, engine)
         
-        # 🚀 APLICA O NOVO CÁLCULO DE SLA DE 24H
         df_rec = calcular_sla_acondicionamento(df_rec)
         
         if df_rec.empty: st.success("Nenhuma carga em trânsito internamente no momento.")
@@ -504,10 +484,8 @@ with aba_almoxarifado:
             
             area_botoes_recebimento = st.container()
             
-            if lote_selecionado == "Mostrar Todos os Lotes Pendentes":
-                df_lote = df_rec.copy()
-            else:
-                df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
+            if lote_selecionado == "Mostrar Todos os Lotes Pendentes": df_lote = df_rec.copy()
+            else: df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
             
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
@@ -638,9 +616,9 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES E EM TRÂNSITO (Manter Histórico)"):
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"))
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
