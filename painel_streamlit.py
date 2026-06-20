@@ -41,7 +41,6 @@ LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-# 🚀 REMOVI A TRAVA DE MEMÓRIA PARA ELE GARANTIR AS COLUNAS SEMPRE!
 with engine.connect() as conn:
     conn.execute(text('''
         CREATE TABLE IF NOT EXISTS expedicao_completa (
@@ -52,7 +51,6 @@ with engine.connect() as conn:
         )
     '''))
     
-    # Adiciona as colunas novas de forma nativa e à prova de falhas no PostgreSQL
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
         
@@ -256,7 +254,6 @@ query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio = 'Pendente'"
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-# DASHBOARD DE TOPO
 if not df_bruto.empty:
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total na Doca</div><div class='kpi-valor'>{len(df_bruto)}</div></div>", unsafe_allow_html=True)
@@ -506,17 +503,13 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            st.warning("⚠️ Cuidado: Ações irreversiveis.")
-            if st.button("🔄 Resetar Status de Todos os Materiais"):
+            st.warning("🛡️ Proteção de Dados Ativada: O Histórico não será apagado.")
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
                 with engine.connect() as conn:
-                    conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente', lote_envio = NULL, operador_separacao = NULL"))
+                    # Deleta APENAS o que for pendente (Mantém o histórico intacto!)
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
-                st.rerun()
-                
-            if st.button("🗑️ ZERAR BANCO DE DADOS DE ESTOQUE"):
-                with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa"))
-                    conn.commit()
-                st.session_state["carrinho_expedicao"] = []
+                st.success("Tabela de pendências limpa! Seu histórico está a salvo.")
+                time.sleep(1.5)
                 st.rerun()
