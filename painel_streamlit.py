@@ -45,12 +45,11 @@ st.markdown("""
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO E ATUALIZAÇÃO FORÇADA DO BANCO
+# 1. CONEXÃO E ATUALIZAÇÃO BLINDADA DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-# 🚀 FORÇANDO A CRIAÇÃO DE COLUNAS SEMPRE (Fora do if da memória)
 with engine.connect() as conn:
     conn.execute(text('''
         CREATE TABLE IF NOT EXISTS expedicao_completa (
@@ -60,9 +59,7 @@ with engine.connect() as conn:
             nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
         )
     '''))
-    conn.commit()
     
-    # Garante as colunas extras de forma nativa e segura
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
@@ -195,7 +192,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     df_banco = pd.read_sql_query(query_banco, engine)
                     
                     chaves_no_banco = set(df_banco['chave_banco'])
-                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'] == 'Pendente']['chave_banco'])
+                    chaves_pendentes_banco = set(df_banco[df_banco['status_envio'].isin(['Pendente', 'Em Trânsito Interno'])]['chave_banco'])
                     chaves_do_sap = set(df_pb['chave_comparacao'])
 
                     df_inserir = df_pb[~df_pb['chave_comparacao'].isin(chaves_no_banco)].copy()
@@ -208,7 +205,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     if chaves_sumiram:
                         with engine.connect() as conn:
                             for chave in chaves_sumiram:
-                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio = 'Pendente' AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
+                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Baixado Direto no SAP' WHERE status_envio IN ('Pendente', 'Em Trânsito Interno') AND COALESCE(material, '') || '|' || COALESCE(nfe, '') || '|' || COALESCE(posicao_dep, '') = :c"), {"c": chave})
                             conn.commit()
 
                     st.sidebar.success(f"✅ Sincronizado! \n{len(df_inserir)} novos.\n{len(chaves_sumiram)} baixados.")
@@ -216,7 +213,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
+# 4. FUNÇÕES GERAIS (PDF E SLA)
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -242,7 +239,6 @@ def calcular_sla_acondicionamento(df):
     
     df['dh_despacho'] = pd.to_datetime(df['data_hora_despacho'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
     hoje_agora = pd.Timestamp(datetime.now())
-    
     df['horas_transito'] = (hoje_agora - df['dh_despacho']).dt.total_seconds() / 3600
     
     def classificar_sla_int(row):
@@ -329,7 +325,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
+# 5. TELA PRINCIPAL (DASHBOARD)
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -382,7 +378,7 @@ with aba_recebimento:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
                 col_b1, col_b2 = st.columns([3, 1])
-                busca_global = col_b1.text_input("🔎 Pesquise o material (NF, Material, Fornecedor):", placeholder="Ex: NF-1234...")
+                busca_global = col_b1.text_input("🔎 BIPE O CÓDIGO DA ETIQUETA AQUI (Ou digite Material, NF, Fornecedor):", placeholder="Bipe o Data Matrix ou digite...")
                 filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -393,12 +389,21 @@ with aba_recebimento:
                 df_tela['status_envio'] = df_tela['status_envio'].replace({'Pendente': '🟢 AGUARDANDO DOCA', 'Em Trânsito Interno': '🚚 JÁ DESPACHADO'})
                 
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
+                
+                # 🚀 A LÓGICA MÁGICA DE BUSCA DO LEITOR LASER (BUSCA REVERSA)
                 if busca_global:
-                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-                    df_tela = df_tela[mask]
+                    # Se for um código de barras gigante com espaços (Padrão Etiqueta WEG)
+                    if len(busca_global) > 15 and " " in busca_global:
+                        mask_mat = df_tela['material'].astype(str).apply(lambda x: x in busca_global if x != "" else False)
+                        mask_pos = df_tela['posicao_dep'].astype(str).apply(lambda x: x in busca_global if x != "" else False)
+                        df_tela = df_tela[mask_mat | mask_pos]
+                    else:
+                        # Busca normal digitada
+                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                        df_tela = df_tela[mask]
 
                 if df_tela.empty:
-                    st.warning("Nenhum material encontrado com os filtros atuais.")
+                    st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
                 else:
                     colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
@@ -442,7 +447,7 @@ with aba_recebimento:
                                     itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO']
                                     
                                     if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                                    elif not itens_ja_despachados.empty: st.error("⚠️ Remova os itens JÁ DESPACHADOS do carrinho!")
+                                    elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO!")
                                     elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
                                     elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
                                     else:
@@ -616,9 +621,9 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES E EM TRÂNSITO (Manter Histórico)"):
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
