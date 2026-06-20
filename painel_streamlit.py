@@ -7,8 +7,8 @@ import io
 
 # Importações para o PDF (ReportLab)
 try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib.pagesizes import A4, landscape  # 🚀 IMPORTANTE: 'landscape' deita a folha
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
 except ImportError:
@@ -122,9 +122,6 @@ if not st.session_state["logado"]:
                     st.error("Credenciais inválidas.")
     st.stop()
 
-# ==========================================
-# 🚨 TELA DE TROCA DE SENHA OBRIGATÓRIA 
-# ==========================================
 if st.session_state["precisa_mudar_senha"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
     col_t1, col_t2, col_t3 = st.columns([1, 2, 1])
@@ -221,7 +218,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO)
+# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -246,62 +243,72 @@ def gerar_proximo_lote():
         if not ultimo_lote: return "00000000001"
         else: return str(int(ultimo_lote) + 1).zfill(11)
 
-# 📄 GERADOR DO PDF DE GUIA DE REMESSA
-def gerar_pdf_remessa(lote, origem, destino, operador, df_itens):
+# 📄 GERADOR DO PDF (ORIENTAÇÃO PAISAGEM - ESTILO SAP ALV)
+def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    # Usa "landscape(A4)" para deitar a folha
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     elementos = []
     estilos = getSampleStyleSheet()
     
-    estilo_titulo = ParagraphStyle(name='TituloWEG', parent=estilos['Title'], fontName='Helvetica-Bold', fontSize=18, textColor=colors.HexColor('#00579D'))
-    estilo_normal = estilos['Normal']
+    # Estilos limpos (Preto e Branco / Cinza)
+    estilo_titulo = ParagraphStyle(name='TituloSAP', fontName='Helvetica-Bold', fontSize=14, textColor=colors.black, alignment=1)
+    estilo_info = ParagraphStyle(name='InfoSAP', fontName='Helvetica', fontSize=10, textColor=colors.black)
     
-    elementos.append(Paragraph("WEG - GUIA DE REMESSA LOGÍSTICA", estilo_titulo))
+    elementos.append(Paragraph(f"GUIA DE TRANSFERÊNCIA DE MATERIAIS - WEG", estilo_titulo))
     elementos.append(Spacer(1, 15))
     
-    data_hora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
-    info = f"""
-    <b>Lote de Envio:</b> {lote}<br/>
-    <b>Data e Hora do Despacho:</b> {data_hora}<br/>
-    <b>Origem:</b> {origem}<br/>
-    <b>Destino da Carga:</b> {destino}<br/>
-    <b>Operador (Separação Física):</b> {operador}<br/>
-    <b>Usuário do Sistema:</b> {st.session_state['usuario_atual'].upper()}
+    data_hora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    info_html = f"""
+    <b>Documento (Lote):</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Data/Hora Emissão:</b> {data_hora}<br/>
+    <b>Centro/Dep. Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Centro/Dep. Destino:</b> {destino}<br/>
+    <b>Operador Físico:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Usuário Emissor:</b> {st.session_state['usuario_atual'].upper()}
     """
-    elementos.append(Paragraph(info, estilo_normal))
+    elementos.append(Paragraph(info_html, estilo_info))
     elementos.append(Spacer(1, 20))
     
-    # Montando a tabela
-    dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "NF"]]
+    # Cabeçalho da Tabela
+    dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "Nota Fiscal", "Fornecedor"]]
+    
     for _, row in df_itens.iterrows():
         dados_tabela.append([
             str(row['material']), 
-            str(row['descricao'])[:35], # Limita o texto pra não quebrar a folha
+            str(row['descricao'])[:45], # Limita caracteres para caber
             str(row['estoque']), 
             str(row['posicao_dep']), 
-            str(row['nfe'])
+            str(row['nfe']),
+            str(row['fornecedor'])[:35] # Limita caracteres para caber
         ])
         
-    tabela = Table(dados_tabela, colWidths=[70, 200, 50, 80, 80])
+    # As larguras somam 800 pontos, que é a largura exata de uma folha A4 deitada
+    tabela = Table(dados_tabela, colWidths=[80, 260, 50, 80, 110, 220])
+    
+    # Design Padrão SAP (Cabeçalho cinza claro, bordas pretas finas)
     tabela.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#00579D')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0E0E0')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+        ('ALIGN', (0,0), (-1,0), 'CENTER'),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0,0), (-1,0), 10),
-        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f4f6f9')),
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('FONTSIZE', (0,0), (-1,0), 9),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+        ('TOPPADDING', (0,0), (-1,0), 6),
+        
+        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,1), (-1,-1), 8),
+        ('ALIGN', (2,1), (2,-1), 'CENTER'), # Centraliza Qtd
+        ('ALIGN', (3,1), (3,-1), 'CENTER'), # Centraliza Posição
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     elementos.append(tabela)
     
-    elementos.append(Spacer(1, 60))
+    elementos.append(Spacer(1, 50))
     assinaturas = [
-        ["___________________________________", "___________________________________"],
-        [f"Expedição ({operador})", f"Recebimento ({destino})"]
+        ["______________________________________________", "______________________________________________"],
+        [f"Visto Expedição ({operador})", f"Visto Recebimento ({destino})"]
     ]
-    tab_ass = Table(assinaturas, colWidths=[250, 250])
-    tab_ass.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER')]))
+    tab_ass = Table(assinaturas, colWidths=[400, 400])
+    tab_ass.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,-1), 'Helvetica'), ('FONTSIZE', (0,0), (-1,-1), 9)]))
     elementos.append(tab_ass)
     
     doc.build(elementos)
@@ -354,16 +361,16 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
 # ------------------------------------------
 with aba_recebimento:
     
-    # 🌟 SE EXISTIR UM PDF GERADO, MOSTRA A TELA DE SUCESSO E IMPRESSÃO!
+    # 🌟 SE EXISTIR UM PDF GERADO, MOSTRA A TELA DE SUCESSO
     if st.session_state["pdf_pronto"] is not None:
         st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
         st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
-        st.write("Imprima a guia de remessa abaixo e anexe fisicamente ao carrinho/pallet para transporte interno.")
+        st.write("Imprima a Guia de Transferência de Material (padrão SAP) e anexe fisicamente à carga.")
         
         st.download_button(
             label="🖨️ Baixar Guia de Remessa (PDF)",
             data=st.session_state["pdf_pronto"]["bytes"],
-            file_name=f"Guia_Remessa_Lote_{st.session_state['pdf_pronto']['lote']}.pdf",
+            file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
             mime="application/pdf",
             type="primary",
             use_container_width=True
@@ -423,7 +430,7 @@ with aba_recebimento:
 
                         with area_botoes_expedicao:
                             qtd_carrinho = len(st.session_state["carrinho_expedicao"])
-                            st.markdown("#### 👷 Fechamento do Lote e Geração de Guia (PDF)")
+                            st.markdown("#### 👷 Fechamento do Lote e Geração de Guia")
                             col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
                             
                             with col_btn1: 
@@ -441,34 +448,32 @@ with aba_recebimento:
                                 
                             with col_btn4:
                                 st.write("") 
-                                if st.button(f"🚚 Gerar PDF e Despachar", type="primary", use_container_width=True):
+                                if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
                                     if qtd_carrinho == 0: st.error("Carrinho vazio!")
                                     elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
                                     elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
                                     else:
                                         novo_lote = gerar_proximo_lote()
                                         
-                                        # Pega os dados dos itens selecionados para jogar no PDF
+                                        # Pega os dados exatos pro PDF
                                         df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
                                         
-                                        # Faz a Baixa no Banco de Dados
                                         with engine.connect() as conn:
                                             for id_peca in st.session_state["carrinho_expedicao"]:
                                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep WHERE id = :id_peca"), 
                                                              {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "id_peca": int(id_peca)})
                                             conn.commit()
                                         
-                                        # Gera o PDF em Memória
-                                        pdf_bytes = gerar_pdf_remessa(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
+                                        # GERA O PDF COM A FUNÇÃO NOVA
+                                        pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
                                         
-                                        # Salva o PDF na Sessão e Reseta Carrinho
                                         st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
                                         st.session_state["carrinho_expedicao"] = []
                                         st.rerun()
                             st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR
+# ABA 2: ACONDICIONAR 
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
