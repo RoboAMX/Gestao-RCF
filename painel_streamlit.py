@@ -3,6 +3,16 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import time
 from datetime import datetime
+import io
+
+# Importações para o PDF (ReportLab)
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+except ImportError:
+    st.error("⚠️ Biblioteca 'reportlab' não encontrada. Pare o servidor e rode: pip install reportlab")
 
 try:
     import agente_almoxweb 
@@ -29,7 +39,7 @@ st.markdown("""
         .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
         .kpi-roxo .kpi-valor { color: #9c27b0; }
         .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
-        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; margin-bottom: 20px; }
+        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,7 +58,7 @@ if "db_verificado" not in st.session_state:
                 id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
                 centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
                 posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
-                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
+                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
             )
         '''))
         try: conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
@@ -84,8 +94,8 @@ if "logado" not in st.session_state:
     st.session_state["perfil_atual"] = ""
     st.session_state["precisa_mudar_senha"] = False 
 
-if "carrinho_expedicao" not in st.session_state:
-    st.session_state["carrinho_expedicao"] = []
+if "carrinho_expedicao" not in st.session_state: st.session_state["carrinho_expedicao"] = []
+if "pdf_pronto" not in st.session_state: st.session_state["pdf_pronto"] = None
 
 if not st.session_state["logado"]:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -144,7 +154,7 @@ if st.session_state["precisa_mudar_senha"]:
 # 3. MENU LATERAL E ROBÔ
 # ==========================================
 st.sidebar.image(LOGO_WEG, width=100)
-st.sidebar.markdown(f"👨‍💻 Logado: **{st.session_state['usuario_atual'].upper()}**")
+st.sidebar.markdown(f"👨‍💻 Sistema: **{st.session_state['usuario_atual'].upper()}**")
 st.sidebar.markdown(f"🛡️ Nível: **{st.session_state['perfil_atual']}**")
 
 if st.sidebar.button("🚪 Sair do Sistema"):
@@ -211,7 +221,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES DE SLA E LOTES
+# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO)
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -236,6 +246,68 @@ def gerar_proximo_lote():
         if not ultimo_lote: return "00000000001"
         else: return str(int(ultimo_lote) + 1).zfill(11)
 
+# 📄 GERADOR DO PDF DE GUIA DE REMESSA
+def gerar_pdf_remessa(lote, origem, destino, operador, df_itens):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elementos = []
+    estilos = getSampleStyleSheet()
+    
+    estilo_titulo = ParagraphStyle(name='TituloWEG', parent=estilos['Title'], fontName='Helvetica-Bold', fontSize=18, textColor=colors.HexColor('#00579D'))
+    estilo_normal = estilos['Normal']
+    
+    elementos.append(Paragraph("WEG - GUIA DE REMESSA LOGÍSTICA", estilo_titulo))
+    elementos.append(Spacer(1, 15))
+    
+    data_hora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
+    info = f"""
+    <b>Lote de Envio:</b> {lote}<br/>
+    <b>Data e Hora do Despacho:</b> {data_hora}<br/>
+    <b>Origem:</b> {origem}<br/>
+    <b>Destino da Carga:</b> {destino}<br/>
+    <b>Operador (Separação Física):</b> {operador}<br/>
+    <b>Usuário do Sistema:</b> {st.session_state['usuario_atual'].upper()}
+    """
+    elementos.append(Paragraph(info, estilo_normal))
+    elementos.append(Spacer(1, 20))
+    
+    # Montando a tabela
+    dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "NF"]]
+    for _, row in df_itens.iterrows():
+        dados_tabela.append([
+            str(row['material']), 
+            str(row['descricao'])[:35], # Limita o texto pra não quebrar a folha
+            str(row['estoque']), 
+            str(row['posicao_dep']), 
+            str(row['nfe'])
+        ])
+        
+    tabela = Table(dados_tabela, colWidths=[70, 200, 50, 80, 80])
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#00579D')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 10),
+        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f4f6f9')),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+    ]))
+    elementos.append(tabela)
+    
+    elementos.append(Spacer(1, 60))
+    assinaturas = [
+        ["___________________________________", "___________________________________"],
+        [f"Expedição ({operador})", f"Recebimento ({destino})"]
+    ]
+    tab_ass = Table(assinaturas, colWidths=[250, 250])
+    tab_ass.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER')]))
+    elementos.append(tab_ass)
+    
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 config_colunas_gerais = {
     "Selecionar": st.column_config.CheckboxColumn("☑️", width="small"),
     "Acondicionado": st.column_config.CheckboxColumn("☑️", width="small"),
@@ -252,7 +324,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD + ABAS)
+# 5. TELA PRINCIPAL E DASHBOARD
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -278,95 +350,125 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: DESPACHO PELA DOCA DE RECEBIMENTO
+# ABA 1: DESPACHO PELA DOCA
 # ------------------------------------------
 with aba_recebimento:
-    if st.session_state["perfil_atual"] == "Almoxarifado":
-        st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
-    else:
-        with st.container():
-            st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-            col_b1, col_b2 = st.columns([3, 1])
-            busca_global = col_b1.text_input("🔎 Pesquise o material que chegou (NF, Material, Fornecedor):", placeholder="Ex: NF-1234...")
-            filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
-            st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 🌟 SE EXISTIR UM PDF GERADO, MOSTRA A TELA DE SUCESSO E IMPRESSÃO!
+    if st.session_state["pdf_pronto"] is not None:
+        st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
+        st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
+        st.write("Imprima a guia de remessa abaixo e anexe fisicamente ao carrinho/pallet para transporte interno.")
         
-        if df_bruto.empty:
-            st.success("Tudo limpo! Nenhuma carga na Doca para despachar.")
+        st.download_button(
+            label="🖨️ Baixar Guia de Remessa (PDF)",
+            data=st.session_state["pdf_pronto"]["bytes"],
+            file_name=f"Guia_Remessa_Lote_{st.session_state['pdf_pronto']['lote']}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+        
+        st.divider()
+        if st.button("🔄 Voltar para a Tela de Expedição", use_container_width=True):
+            st.session_state["pdf_pronto"] = None
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    else:
+        # TELA NORMAL DE EXPEDIÇÃO
+        if st.session_state["perfil_atual"] == "Almoxarifado":
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
         else:
-            df_tela = df_bruto.copy()
-            if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
-            if busca_global:
-                mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-                df_tela = df_tela[mask]
+            with st.container():
+                st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+                col_b1, col_b2 = st.columns([3, 1])
+                busca_global = col_b1.text_input("🔎 Pesquise o material que chegou (NF, Material, Fornecedor):", placeholder="Ex: NF-1234...")
+                filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+                st.markdown("</div>", unsafe_allow_html=True)
 
-            if df_tela.empty:
-                st.warning("Nenhum material encontrado com os filtros atuais.")
+            if df_bruto.empty:
+                st.success("Tudo limpo! Nenhuma carga na Doca para despachar.")
             else:
-                colunas_visiveis = ['id', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
-                df_tela = df_tela[colunas_visiveis]
-                
-                # 🚀 CONTAINER DOS BOTÕES ACIMA DA TABELA
-                area_botoes_expedicao = st.container()
-                
-                # Renderiza a tabela A BAIXO dos botões
-                df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
-                colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
-                
-                df_editado = st.data_editor(
-                    df_tela, hide_index=True, use_container_width=True, height=400,
-                    disabled=colunas_bloqueadas, column_config=config_colunas_gerais
-                )
-                
-                # Atualiza a memória
-                for index, row in df_editado.iterrows():
-                    id_linha = row['id']
-                    if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
-                    elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+                df_tela = df_bruto.copy()
+                if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
+                if busca_global:
+                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                    df_tela = df_tela[mask]
 
-                # 🚀 RENDERIZA OS BOTÕES DENTRO DO CONTAINER LÁ DE CIMA
-                with area_botoes_expedicao:
-                    qtd_carrinho = len(st.session_state["carrinho_expedicao"])
-                    st.markdown("#### 👷 Fechamento do Lote e Rastreabilidade")
-                    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+                if df_tela.empty:
+                    st.warning("Nenhum material encontrado com os filtros atuais.")
+                else:
+                    colunas_visiveis = ['id', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
+                    df_tela = df_tela[colunas_visiveis]
                     
-                    with col_btn1: 
-                        st.info(f"🛒 **{qtd_carrinho}** itens no carrinho.")
+                    if st.session_state["perfil_atual"] == "Almoxarifado":
+                        st.info("👀 Modo Leitura.")
+                        st.dataframe(df_tela, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+                    else:
+                        area_botoes_expedicao = st.container()
                         
-                    with col_btn2:
-                        df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
-                        lista_op = ["-- Selecione o Operador Físico --"] + df_operadores['nome'].tolist()
-                        operador_selecionado = st.selectbox("1. Quem separou fisicamente?", lista_op)
+                        df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+                        colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
                         
-                    with col_btn3:
-                        df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
-                        lista_dep = ["-- Selecione o Setor Destino --"] + df_depositos['nome_deposito'].tolist()
-                        deposito_selecionado = st.selectbox("2. Para onde vai a carga?", lista_dep)
+                        df_editado = st.data_editor(
+                            df_tela, hide_index=True, use_container_width=True, height=400,
+                            disabled=colunas_bloqueadas, column_config=config_colunas_gerais
+                        )
                         
-                    with col_btn4:
-                        st.write("") 
-                        if st.button(f"🚚 Gerar Lote e Despachar", type="primary", use_container_width=True):
-                            if qtd_carrinho == 0: 
-                                st.error("Carrinho vazio!")
-                            elif operador_selecionado == "-- Selecione o Operador Físico --":
-                                st.error("⚠️ Selecione o Operador Físico!")
-                            elif deposito_selecionado == "-- Selecione o Setor Destino --":
-                                st.error("⚠️ Selecione para qual Setor a carga está indo!")
-                            else:
-                                novo_lote = gerar_proximo_lote()
-                                with engine.connect() as conn:
-                                    for id_peca in st.session_state["carrinho_expedicao"]:
-                                        conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep WHERE id = :id_peca"), 
-                                                     {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "id_peca": int(id_peca)})
-                                    conn.commit()
-                                st.session_state["carrinho_expedicao"] = []
-                                st.success(f"✅ Carga Despachada! Lote de Envio Gerado: **{novo_lote}**")
-                                time.sleep(1.5)
-                                st.rerun()
-                    st.divider()
+                        for index, row in df_editado.iterrows():
+                            id_linha = row['id']
+                            if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
+                            elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+
+                        with area_botoes_expedicao:
+                            qtd_carrinho = len(st.session_state["carrinho_expedicao"])
+                            st.markdown("#### 👷 Fechamento do Lote e Geração de Guia (PDF)")
+                            col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+                            
+                            with col_btn1: 
+                                st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
+                                
+                            with col_btn2:
+                                df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
+                                lista_op = ["-- Selecione o Operador --"] + df_operadores['nome'].tolist()
+                                operador_selecionado = st.selectbox("1. Quem separou?", lista_op)
+                                
+                            with col_btn3:
+                                df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
+                                lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
+                                deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
+                                
+                            with col_btn4:
+                                st.write("") 
+                                if st.button(f"🚚 Gerar PDF e Despachar", type="primary", use_container_width=True):
+                                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
+                                    elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
+                                    elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
+                                    else:
+                                        novo_lote = gerar_proximo_lote()
+                                        
+                                        # Pega os dados dos itens selecionados para jogar no PDF
+                                        df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
+                                        
+                                        # Faz a Baixa no Banco de Dados
+                                        with engine.connect() as conn:
+                                            for id_peca in st.session_state["carrinho_expedicao"]:
+                                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep WHERE id = :id_peca"), 
+                                                             {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "id_peca": int(id_peca)})
+                                            conn.commit()
+                                        
+                                        # Gera o PDF em Memória
+                                        pdf_bytes = gerar_pdf_remessa(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
+                                        
+                                        # Salva o PDF na Sessão e Reseta Carrinho
+                                        st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
+                                        st.session_state["carrinho_expedicao"] = []
+                                        st.rerun()
+                            st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR (ALMOXARIFADO LENDO LOTES E GERAL)
+# ABA 2: ACONDICIONAR
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
@@ -383,25 +485,22 @@ with aba_almoxarifado:
             opcoes_menu = ["Mostrar Todos os Lotes Pendentes"] + lista_lotes
             lote_selecionado = st.selectbox("Filtre por Lote de Recebimento:", opcoes_menu)
             
+            area_botoes_recebimento = st.container()
+            
             if lote_selecionado == "Mostrar Todos os Lotes Pendentes":
                 df_lote = df_rec.copy()
             else:
                 df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
             
-            # 🚀 CONTAINER DOS BOTÕES ACIMA DA TABELA
-            area_botoes_recebimento = st.container()
-            
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
             
-            # Tabela desenhada ABAIXO
             df_editado_rec = st.data_editor(
                 df_lote, hide_index=True, use_container_width=True, height=400, 
                 disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais
             )
             selecionados_rec = df_editado_rec[df_editado_rec["Acondicionado"] == True]
             
-            # Botões desenhados DENTRO do container ACIMA
             with area_botoes_recebimento:
                 st.divider()
                 col_r1, col_r2 = st.columns(2)
@@ -429,7 +528,7 @@ with aba_almoxarifado:
                             st.success(f"{len(selecionados_rec)} peças acondicionadas!")
                             time.sleep(1.5)
                             st.rerun()
-                st.write("") # Espaço antes da tabela
+                st.write("") 
 
 # ------------------------------------------
 # ABA 3: HISTÓRICO GERAL
@@ -522,7 +621,6 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            st.warning("🛡️ Proteção de Dados Ativada: O Histórico não será apagado.")
             if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
                 with engine.connect() as conn:
                     conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
