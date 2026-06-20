@@ -29,6 +29,7 @@ st.markdown("""
         .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
         .kpi-roxo .kpi-valor { color: #9c27b0; }
         .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
+        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); border-top: 4px solid #00579D; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -54,8 +55,8 @@ if "db_verificado" not in st.session_state:
 
         if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
             conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '1234', 'Almoxarifado')"))
+            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '1234', 'Recebimento')"))
             conn.commit()
     st.session_state["db_verificado"] = True
 
@@ -66,6 +67,7 @@ if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario_atual"] = ""
     st.session_state["perfil_atual"] = ""
+    st.session_state["precisa_mudar_senha"] = False
 
 if "carrinho_expedicao" not in st.session_state:
     st.session_state["carrinho_expedicao"] = []
@@ -82,14 +84,61 @@ if not st.session_state["logado"]:
             if st.form_submit_button("Entrar no Sistema"):
                 with engine.connect() as conn:
                     resultado = conn.execute(text("SELECT senha, perfil FROM usuarios WHERE usuario = :u"), {"u": usuario_input}).fetchone()
+                
                 if resultado and resultado[0] == senha_input:
                     st.session_state["logado"] = True
                     st.session_state["usuario_atual"] = usuario_input
                     st.session_state["perfil_atual"] = resultado[1]
+                    
+                    # 🚀 VERIFICA SE A SENHA É A PADRÃO (1234)
+                    if senha_input == "1234":
+                        st.session_state["precisa_mudar_senha"] = True
+                    else:
+                        st.session_state["precisa_mudar_senha"] = False
+                        
+                    st.success("Acesso Liberado!")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Credenciais inválidas.")
     st.stop()
+
+# ==========================================
+# 🚨 TELA DE TROCA DE SENHA OBRIGATÓRIA 
+# ==========================================
+if st.session_state["precisa_mudar_senha"]:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col_t1, col_t2, col_t3 = st.columns([1, 2, 1])
+    with col_t2:
+        st.warning("⚠️ **Ação Obrigatória:** Este é o seu primeiro acesso (ou sua senha foi resetada). Por favor, crie uma nova senha de uso pessoal e intransferível.")
+        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+        st.markdown(f"### Olá, {st.session_state['usuario_atual'].upper()}")
+        
+        with st.form("form_mudar_senha"):
+            nova_senha = st.text_input("Digite a Nova Senha:", type="password")
+            confirma_senha = st.text_input("Confirme a Nova Senha:", type="password")
+            
+            if st.form_submit_button("Atualizar Senha e Entrar"):
+                if nova_senha == "" or confirma_senha == "":
+                    st.error("As senhas não podem ser vazias.")
+                elif nova_senha == "1234":
+                    st.error("Sua nova senha não pode ser 1234. Escolha outra mais segura.")
+                elif nova_senha != confirma_senha:
+                    st.error("As senhas não coincidem. Tente novamente.")
+                else:
+                    with engine.connect() as conn:
+                        conn.execute(text("UPDATE usuarios SET senha = :s WHERE usuario = :u"), {"s": nova_senha, "u": st.session_state["usuario_atual"]})
+                        conn.commit()
+                    
+                    st.session_state["precisa_mudar_senha"] = False
+                    st.success("✅ Senha atualizada com sucesso! Redirecionando para o painel...")
+                    time.sleep(1.5)
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    # st.stop() bloqueia o código de carregar o menu lateral e o resto do sistema!
+    st.stop()
+
 
 # ==========================================
 # 3. MENU LATERAL E ROBÔ
@@ -225,11 +274,11 @@ aba_expedicao, aba_recebedor, aba_historico, aba_admin = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: EXPEDIÇÃO (BLOQUEADA PARA RECEBIMENTO)
+# ABA 1: EXPEDIÇÃO
 # ------------------------------------------
 with aba_expedicao:
     if st.session_state["perfil_atual"] == "Recebimento":
-        st.error("⛔ Acesso Restrito: O seu perfil é de **Recebimento na Doca**. Você não tem permissão para despachar materiais. Vá para a aba 2.")
+        st.error("⛔ Acesso Restrito: O seu perfil é de **Recebimento na Doca**. Vá para a aba 2.")
     else:
         with st.container():
             st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
@@ -243,7 +292,6 @@ with aba_expedicao:
             st.success("Tudo limpo! Nenhum material pendente para despachar.")
         else:
             df_tela = df_bruto.copy()
-            
             if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
             if busca_global:
                 mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
@@ -285,11 +333,11 @@ with aba_expedicao:
                             st.rerun()
 
 # ------------------------------------------
-# ABA 2: RECEBIMENTO (BLOQUEADA PARA ALMOXARIFADO)
+# ABA 2: RECEBIMENTO
 # ------------------------------------------
 with aba_recebedor:
     if st.session_state["perfil_atual"] == "Almoxarifado":
-        st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Você não tem permissão para confirmar o recebimento na doca destino. Vá para a aba 1.")
+        st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 1.")
     else:
         st.markdown("### 📦 Painel do Recebedor (Em Trânsito)")
         query_rec = "SELECT id, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Despachado'"
@@ -329,7 +377,7 @@ with aba_historico:
     else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO
+# ABA 4: ADMINISTRAÇÃO 
 # ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
@@ -341,22 +389,22 @@ with aba_admin:
         with tab_usuarios:
             st.markdown("#### Cadastrar Novo Usuário")
             with st.form("form_novo_usuario"):
-                col_u1, col_u2, col_u3 = st.columns(3)
-                novo_usu = col_u1.text_input("Login")
-                nova_senha = col_u2.text_input("Senha", type="password")
-                novo_perfil = col_u3.selectbox("Perfil", ["Almoxarifado", "Recebimento", "Admin"])
+                col_u1, col_u2 = st.columns(2)
+                novo_usu = col_u1.text_input("Login do Usuário")
+                novo_perfil = col_u2.selectbox("Perfil de Acesso", ["Almoxarifado", "Recebimento", "Admin"])
+                st.info("💡 A senha padrão inicial será **1234**. O usuário será obrigado a trocar no primeiro acesso.")
                 
-                if st.form_submit_button("Salvar Usuário"):
-                    if novo_usu and nova_senha:
+                if st.form_submit_button("Criar Usuário"):
+                    if novo_usu:
                         try:
                             with engine.connect() as conn:
-                                conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, :s, :p)"), {"u": novo_usu.lower(), "s": nova_senha, "p": novo_perfil})
+                                conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, '1234', :p)"), {"u": novo_usu.lower(), "p": novo_perfil})
                                 conn.commit()
-                            st.success(f"Usuário {novo_usu} cadastrado!")
-                            time.sleep(1)
+                            st.success(f"Usuário {novo_usu} cadastrado com senha padrão 1234!")
+                            time.sleep(1.5)
                             st.rerun()
                         except: st.error("Erro: Usuário já existe!")
-                    else: st.warning("Preencha todos os campos!")
+                    else: st.warning("Preencha o campo de Login!")
             
             st.markdown("#### Usuários Atuais")
             df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", engine)
