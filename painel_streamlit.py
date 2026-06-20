@@ -33,42 +33,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. CONEXÃO COM O BANCO DE DADOS E CRIAÇÃO DE TABELAS
+# 1. CONEXÃO COM O BANCO E GARANTIA DE TABELAS
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
 
-if "db_verificado" not in st.session_state:
-    with engine.connect() as conn:
-        # Tabela Principal
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS expedicao_completa (
-                id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
-                centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
-                posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
-                nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
-            )
-        '''))
-        # Tabela de Usuários
-        conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
-        
-        # NOVA TABELA: Depósitos Destino
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS depositos_destino (
-                id SERIAL PRIMARY KEY,
-                nome_deposito TEXT UNIQUE,
-                responsavel TEXT
-            )
-        '''))
-        conn.commit()
+# 🚀 TIREI O 'IF' DA MEMÓRIA PARA ELE GARANTIR A CRIAÇÃO SEMPRE!
+with engine.connect() as conn:
+    conn.execute(text('''
+        CREATE TABLE IF NOT EXISTS expedicao_completa (
+            id SERIAL PRIMARY KEY, item TEXT, material TEXT, descricao TEXT, 
+            centro_dep TEXT, tipo_estoque TEXT, lote TEXT, tp TEXT, 
+            posicao_dep TEXT, estoque REAL, data_em TEXT, data_necess TEXT, 
+            nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente' 
+        )
+    '''))
+    
+    conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
+    
+    conn.execute(text('''
+        CREATE TABLE IF NOT EXISTS depositos_destino (
+            id SERIAL PRIMARY KEY,
+            nome_deposito TEXT UNIQUE,
+            responsavel TEXT
+        )
+    '''))
+    conn.commit()
 
-        # Cria os usuários master padrão se o banco for virgem
-        if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
-            conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
-            conn.commit()
-    st.session_state["db_verificado"] = True
+    if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('roberto', 'weg2026', 'Admin')"))
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('almox', '123', 'Almoxarifado')"))
+        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES ('doca1', '123', 'Recebimento')"))
+        conn.commit()
 
 # ==========================================
 # 2. LOGIN SEGURO E MEMÓRIA
@@ -123,7 +119,7 @@ def limpar_sujeira_sap(valor):
     return v
 
 if st.session_state["perfil_atual"] == "Admin":
-    st.sidebar.markdown("### 🤖 Robô Sincronizador")
+    st.sidebar.markdown("### 🤖 Sincronização SAP")
     if robo_disponivel:
         if st.sidebar.button("⚡ Sincronizar com SAP"):
             with st.spinner("Extraindo e comparando dados..."):
@@ -196,7 +192,6 @@ def calcular_sla_pandas(df):
     df['SLA'] = df.apply(classificar_regra, axis=1)
     return df.drop(columns=['data_real', 'dias_parado'])
 
-
 config_colunas_gerais = {
     "Selecionar": st.column_config.CheckboxColumn("☑️", width="small"),
     "Chegou_Fisico": st.column_config.CheckboxColumn("☑️ Recebido?", width="small"),
@@ -241,7 +236,7 @@ aba_expedicao, aba_recebedor, aba_historico, aba_admin = st.tabs([
 # ------------------------------------------
 with aba_expedicao:
     with st.container():
-        st.markdown("<div style='background: white; padding: 20px; border-radius: 8px; border-top: 4px solid #00579D;'>", unsafe_allow_html=True)
+        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns([3, 1])
         busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
         filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
@@ -269,8 +264,7 @@ with aba_expedicao:
             
             df_editado = st.data_editor(
                 df_tela, hide_index=True, use_container_width=True, height=400,
-                disabled=colunas_bloqueadas,
-                column_config=config_colunas_gerais
+                disabled=colunas_bloqueadas, column_config=config_colunas_gerais
             )
             
             for index, row in df_editado.iterrows():
@@ -309,8 +303,7 @@ with aba_recebedor:
         
         df_editado_rec = st.data_editor(
             df_rec, hide_index=True, use_container_width=True, height=300, 
-            disabled=colunas_bloqueadas_rec,
-            column_config=config_colunas_gerais
+            disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais
         )
         selecionados_rec = df_editado_rec[df_editado_rec["Chegou_Fisico"] == True]
         
@@ -337,7 +330,7 @@ with aba_historico:
     else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO (USUÁRIOS E DEPÓSITOS)
+# ABA 4: ADMINISTRAÇÃO
 # ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
@@ -345,17 +338,15 @@ with aba_admin:
     else:
         st.markdown("### ⚙️ Painel de Controle Avançado")
         
-        # Criação de Sub-Abas para organizar a bagunça do Admin
-        tab_usuarios, tab_depositos, tab_sistema = st.tabs(["👥 Gestão de Usuários", "🏭 Depósitos Destino", "⚠️ Zona de Risco (Sistema)"])
+        tab_usuarios, tab_depositos, tab_sistema = st.tabs(["👥 Gestão de Usuários", "🏭 Depósitos Destino", "⚠️ Zona de Risco"])
         
-        # SUB-ABA 1: USUÁRIOS
         with tab_usuarios:
             st.markdown("#### Cadastrar Novo Usuário")
             with st.form("form_novo_usuario"):
                 col_u1, col_u2, col_u3 = st.columns(3)
-                novo_usu = col_u1.text_input("Login do Usuário")
+                novo_usu = col_u1.text_input("Login")
                 nova_senha = col_u2.text_input("Senha", type="password")
-                novo_perfil = col_u3.selectbox("Perfil de Acesso", ["Almoxarifado", "Recebimento", "Admin"])
+                novo_perfil = col_u3.selectbox("Perfil", ["Almoxarifado", "Recebimento", "Admin"])
                 
                 if st.form_submit_button("Salvar Usuário"):
                     if novo_usu and nova_senha:
@@ -363,23 +354,19 @@ with aba_admin:
                             with engine.connect() as conn:
                                 conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, :s, :p)"), {"u": novo_usu.lower(), "s": nova_senha, "p": novo_perfil})
                                 conn.commit()
-                            st.success(f"Usuário {novo_usu} cadastrado com sucesso!")
+                            st.success(f"Usuário {novo_usu} cadastrado!")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error("Erro: Este usuário já existe!")
-                    else:
-                        st.warning("Preencha todos os campos!")
+                        except: st.error("Erro: Usuário já existe!")
+                    else: st.warning("Preencha todos os campos!")
             
             st.markdown("#### Usuários Atuais")
             df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", engine)
             st.dataframe(df_usuarios, hide_index=True, use_container_width=True)
             
-            # Botão simples para excluir usuário
             usu_deletar = st.selectbox("Selecione um usuário para remover:", [""] + df_usuarios['usuario'].tolist())
-            if st.button("🗑️ Excluir Usuário Selecionado") and usu_deletar:
-                if usu_deletar == "roberto":
-                    st.error("Você não pode excluir a si mesmo!")
+            if st.button("🗑️ Excluir Usuário") and usu_deletar:
+                if usu_deletar == "roberto": st.error("Você não pode excluir a si mesmo!")
                 else:
                     with engine.connect() as conn:
                         conn.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usu_deletar})
@@ -388,14 +375,12 @@ with aba_admin:
                     time.sleep(1)
                     st.rerun()
 
-        # SUB-ABA 2: DEPÓSITOS
         with tab_depositos:
             st.markdown("#### Cadastrar Novo Depósito Destino")
-            st.info("Aqui você cadastra para onde os materiais vão e quem é a Liderança que vai receber e-mails de alerta.")
             with st.form("form_novo_deposito"):
                 col_d1, col_d2 = st.columns(2)
-                novo_deposito = col_d1.text_input("Nome do Setor/Depósito (Ex: Montagem Motor)")
-                novo_responsavel = col_d2.text_input("Nome do Responsável / Líder")
+                novo_deposito = col_d1.text_input("Nome do Setor (Ex: Montagem Motor)")
+                novo_responsavel = col_d2.text_input("Líder Responsável")
                 
                 if st.form_submit_button("Salvar Depósito"):
                     if novo_deposito and novo_responsavel:
@@ -406,16 +391,13 @@ with aba_admin:
                             st.success(f"Depósito {novo_deposito} cadastrado!")
                             time.sleep(1)
                             st.rerun()
-                        except:
-                            st.error("Este depósito já existe.")
-                    else:
-                        st.warning("Preencha todos os campos!")
+                        except: st.error("Este depósito já existe.")
+                    else: st.warning("Preencha todos os campos!")
             
             st.markdown("#### Depósitos Cadastrados")
             df_depositos = pd.read_sql_query("SELECT * FROM depositos_destino ORDER BY id", engine)
             if not df_depositos.empty:
                 st.dataframe(df_depositos, hide_index=True, use_container_width=True)
-                
                 dep_deletar = st.selectbox("Remover depósito:", [""] + df_depositos['nome_deposito'].tolist())
                 if st.button("🗑️ Excluir Depósito") and dep_deletar:
                     with engine.connect() as conn:
@@ -424,26 +406,23 @@ with aba_admin:
                     st.success("Depósito removido!")
                     time.sleep(1)
                     st.rerun()
-            else:
-                st.warning("Nenhum depósito cadastrado ainda.")
 
-        # SUB-ABA 3: ZONA DE RISCO (Banco de Dados)
         with tab_sistema:
-            st.warning("⚠️ Cuidado: As ações abaixo afetam o banco de dados oficial do sistema.")
-            if st.button("🔄 Resetar Status de Todos os Materiais (Devolver para Pendente)"):
+            st.warning("⚠️ Cuidado: Ações irreversiveis.")
+            if st.button("🔄 Resetar Status de Todos os Materiais"):
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Pendente'"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
-                st.success("Status resetados com sucesso!")
-                time.sleep(1.5)
+                st.success("Status resetados!")
+                time.sleep(1)
                 st.rerun()
                 
-            if st.button("🗑️ ZERAR BANCO DE DADOS INTEIRO"):
+            if st.button("🗑️ ZERAR BANCO DE DADOS DE ESTOQUE"):
                 with engine.connect() as conn:
                     conn.execute(text("DELETE FROM expedicao_completa"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
-                st.success("Tabela de materiais apagada! Você pode sincronizar o SAP novamente.")
-                time.sleep(1.5)
+                st.success("Tabela apagada!")
+                time.sleep(1)
                 st.rerun()
