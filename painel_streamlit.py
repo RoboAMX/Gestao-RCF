@@ -18,18 +18,25 @@ st.set_page_config(page_title="Portal Logístico WEG", layout="wide", initial_si
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-        .stApp { background-color: #f4f6f9; }
+        
+        /* 🔵 O NOVO FUNDO AZUL WEG (TOM CLARO E SUAVE) 🔵 */
+        .stApp { background-color: #E6F0F9; }
+        
         h1, h2, h3 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.05); }
+        
+        /* As caixas brancas vão flutuar por cima do fundo azul! */
+        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); }
         .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
         .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
+        
         .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
         .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
         .kpi-roxo .kpi-valor { color: #9c27b0; }
         .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
-        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); border-top: 4px solid #00579D; }
+        
+        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -185,15 +192,14 @@ def calcular_sla_pandas(df):
     return df.drop(columns=['data_real', 'dias_parado'])
 
 
-# 🛠️ CONFIGURAÇÕES DE LARGURA DE COLUNAS (DESIGN DE ESPAÇO)
 config_colunas_gerais = {
     "Selecionar": st.column_config.CheckboxColumn("☑️", width="small"),
     "Chegou_Fisico": st.column_config.CheckboxColumn("☑️ Recebido?", width="small"),
     "id": st.column_config.NumberColumn("ID", width="small"),
     "SLA": st.column_config.TextColumn("Status SLA", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
-    "descricao": st.column_config.TextColumn("Descrição do Item", width="large"), # Ocupa mais espaço
-    "estoque": st.column_config.NumberColumn("Qtd", width="small"),              # Espaço reduzido
+    "descricao": st.column_config.TextColumn("Descrição do Item", width="large"), 
+    "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
     "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
     "nfe": st.column_config.TextColumn("NF", width="medium"),
     "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
@@ -232,7 +238,7 @@ with aba_expedicao:
     with st.container():
         st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns([3, 1])
-        busca_global = col_b1.text_input("🔎 Pesquise (Material, NF, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
+        busca_global = col_b1.text_input("🔎 Pesquise rapidamente (NF, Material, Fornecedor, Posição):", placeholder="Ex: NF-1234, SKF, 1000456...")
         filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
         st.markdown("</div>", unsafe_allow_html=True)
     st.write("")
@@ -256,7 +262,6 @@ with aba_expedicao:
             df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
             colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
             
-            # AQUI APLICAMOS A CONFIGURAÇÃO DE LARGURAS
             df_editado = st.data_editor(
                 df_tela, hide_index=True, use_container_width=True, height=400,
                 disabled=colunas_bloqueadas,
@@ -297,7 +302,6 @@ with aba_recebedor:
         df_rec.insert(0, "Chegou_Fisico", False)
         colunas_bloqueadas_rec = [col for col in df_rec.columns if col != "Chegou_Fisico"]
         
-        # AQUI APLICAMOS A LARGURA TAMBÉM
         df_editado_rec = st.data_editor(
             df_rec, hide_index=True, use_container_width=True, height=300, 
             disabled=colunas_bloqueadas_rec,
@@ -326,7 +330,6 @@ with aba_historico:
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
     else: 
-        # AQUI TAMBÉM
         st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
 # ------------------------------------------
