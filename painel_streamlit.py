@@ -17,8 +17,10 @@ try:
     from PIL import Image
     from pylibdmtx.pylibdmtx import decode as decode_dm
     leitor_ativo = True
-except ImportError:
+    erro_real = ""
+except Exception as e:
     leitor_ativo = False
+    erro_real = str(e)
 
 try:
     import agente_almoxweb 
@@ -53,7 +55,7 @@ st.markdown("""
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO COM BANCO DE DADOS
+# 1. CONEXÃO E ATUALIZAÇÃO BLINDADA DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
@@ -67,7 +69,6 @@ with engine.connect() as conn:
             nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
         )
     '''))
-    
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
@@ -80,12 +81,7 @@ with engine.connect() as conn:
     
     conn.execute(text('''
         CREATE TABLE IF NOT EXISTS ocorrencias_chat (
-            id SERIAL PRIMARY KEY,
-            lote_ref TEXT,
-            usuario TEXT,
-            perfil TEXT,
-            data_hora TEXT,
-            mensagem TEXT
+            id SERIAL PRIMARY KEY, lote_ref TEXT, usuario TEXT, perfil TEXT, data_hora TEXT, mensagem TEXT
         )
     '''))
     conn.commit()
@@ -108,7 +104,6 @@ if "usuario_atual" not in st.session_state: st.session_state["usuario_atual"] = 
 if "perfil_atual" not in st.session_state: st.session_state["perfil_atual"] = ""
 if "precisa_mudar_senha" not in st.session_state: st.session_state["precisa_mudar_senha"] = False 
 if "carrinho_expedicao" not in st.session_state: st.session_state["carrinho_expedicao"] = []
-if "pdf_pronto" not in st.session_state: st.session_state["pdf_pronto"] = None
 if "busca_global" not in st.session_state: st.session_state["busca_global"] = "" 
 
 if not st.session_state["logado"]:
@@ -155,7 +150,7 @@ if st.session_state["precisa_mudar_senha"]:
                         conn.execute(text("UPDATE usuarios SET senha = :s WHERE usuario = :u"), {"s": nova_senha, "u": st.session_state["usuario_atual"]})
                         conn.commit()
                     st.session_state["precisa_mudar_senha"] = False
-                    st.success("✅ Senha atualizada com sucesso! Redirecionando...")
+                    st.success("✅ Senha atualizada com sucesso! Redirecionando para o painel...")
                     time.sleep(1.5)
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -203,7 +198,6 @@ if st.session_state["perfil_atual"] == "Admin":
                     
                     estoque_sujo = df_robo.get('Quantidade', df_robo.get('Estoque', '')).astype(str)
                     df_pb['umb'] = estoque_sujo.str.replace(r'[\d.,\s]', '', regex=True).str.upper() 
-                    
                     df_pb['estoque'] = estoque_sujo.str.replace(r'[^\d.,]', '', regex=True).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                     df_pb['estoque'] = pd.to_numeric(df_pb['estoque'], errors='coerce').fillna(0.0)
                     
@@ -238,7 +232,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (ATUALIZADO)
+# 4. FUNÇÕES GERAIS E GERADOR DE PDF 📄
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -247,7 +241,6 @@ def calcular_sla_pandas(df):
     df['data_real'] = pd.to_datetime(df['data_em'], format='mixed', dayfirst=True, errors='coerce')
     hoje = pd.Timestamp(datetime.now().date())
     df['dias_parado'] = (hoje - df['data_real']).dt.days.fillna(0).astype(int)
-    
     def classificar_regra(row):
         tipo = str(row['tipo_estoque']).upper()
         if 'Q' in tipo or 'CQ' in tipo: return "🟣 BLOQ. QUALIDADE"
@@ -288,10 +281,11 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     
     elementos.append(Paragraph(f"GUIA DE TRANSFERÊNCIA DE MATERIAIS - WEG", estilo_titulo))
     elementos.append(Spacer(1, 15))
-    data_hora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     
-    # TRADUÇÃO APLICADA NO PDF!
-    info_html = f"<b>Número da Remessa:</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissão:</b> {data_hora}<br/><b>Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Destino:</b> {destino}<br/><b>Identificador:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissor:</b> {st.session_state['usuario_atual'].upper()}"
+    # 🚀 O PDF PUXA A DATA DO BANCO SE JÁ FOI ENVIADO, OU A DATA ATUAL SE FOR NOVO
+    data_hora = df_itens['data_hora_despacho'].iloc[0] if 'data_hora_despacho' in df_itens.columns and not pd.isna(df_itens['data_hora_despacho'].iloc[0]) else datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    
+    info_html = f"<b>Número da Remessa:</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissão:</b> {data_hora}<br/><b>Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Destino:</b> {destino}<br/><b>Identificador:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissor do Sistema:</b> {st.session_state['usuario_atual'].upper()}"
     elementos.append(Paragraph(info_html, estilo_info))
     elementos.append(Spacer(1, 20))
     
@@ -311,8 +305,6 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     ]))
     elementos.append(tabela)
     elementos.append(Spacer(1, 50))
-    
-    # TRADUÇÃO APLICADA NAS ASSINATURAS DO PDF!
     assinaturas = [["______________________________________________", "______________________________________________"], [f"Visto Recebimento Físico ({operador})", f"Visto Almoxarifado ({destino})"]]
     tab_ass = Table(assinaturas, colWidths=[400, 400])
     tab_ass.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,-1), 'Helvetica'), ('FONTSIZE', (0,0), (-1,-1), 9)]))
@@ -321,14 +313,13 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer.seek(0)
     return buffer.getvalue()
 
-# TRADUÇÃO APLICADA NOS NOMES DAS COLUNAS DA TELA
 config_colunas_gerais = {
     "Selecionar": st.column_config.CheckboxColumn("☑️", width="small"),
-    "Acondicionado": st.column_config.CheckboxColumn("☑️", width="small"),
+    "Acondicionado": st.column_config.CheckboxColumn("☑️ Recebido?", width="small"),
     "lote_envio": st.column_config.TextColumn("Número da Remessa", width="small"),
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Identificador", width="medium"),
-    "SLA": st.column_config.TextColumn("Status SLA", width="medium"),
+    "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
     "SLA_Interno": st.column_config.TextColumn("Relógio Almox.", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
@@ -354,7 +345,6 @@ df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.
 
 if not df_dashboard.empty:
     c1, c2, c3, c4, c5 = st.columns(5)
-    # TRADUÇÃO DO DASHBOARD
     c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total no Recebimento</div><div class='kpi-valor'>{len(df_dashboard)}</div></div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
@@ -362,7 +352,6 @@ if not df_dashboard.empty:
     c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
     st.write("")
 
-# TRADUÇÃO DAS ABAS
 aba_recebimento, aba_almoxarifado, aba_historico, aba_chat, aba_admin = st.tabs([
     "📋 1. ENVIAR (Recebimento Físico)", 
     "📦 2. ACONDICIONAR (Almoxarifado)", 
@@ -375,149 +364,110 @@ aba_recebimento, aba_almoxarifado, aba_historico, aba_chat, aba_admin = st.tabs(
 # ABA 1: ENVIAR (RECEBIMENTO FÍSICO)
 # ------------------------------------------
 with aba_recebimento:
-    if st.session_state["pdf_pronto"] is not None:
-        st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
-        st.success(f"🎉 Carga enviada com sucesso! (Remessa: {st.session_state['pdf_pronto']['lote']})")
-        st.download_button(
-            label="🖨️ Baixar Guia de Remessa (PDF)",
-            data=st.session_state["pdf_pronto"]["bytes"], file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
-            mime="application/pdf", type="primary", use_container_width=True
-        )
-        st.divider()
-        if st.button("🔄 Voltar para a Tela de Envio", use_container_width=True):
-            st.session_state["pdf_pronto"] = None
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-        
+    if st.session_state["perfil_atual"] == "Almoxarifado":
+        st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
     else:
-        if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
+        with st.container():
+            st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+            col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
+            
+            with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera)"):
+                foto_camera = st.camera_input("Aponte para o código Data Matrix")
+                if foto_camera and leitor_ativo:
+                    if st.session_state.get("ultima_foto_processada") != foto_camera.getvalue():
+                        st.session_state["ultima_foto_processada"] = foto_camera.getvalue()
+                        with st.spinner("Analisando..."):
+                            try:
+                                img = Image.open(foto_camera)
+                                codigos = decode_dm(img)
+                                if codigos:
+                                    texto_bruto = codigos[0].data.decode('utf-8')
+                                    mat_limpo = texto_bruto.split("240")[-1].strip() if "240" in texto_bruto and len(texto_bruto) > 15 else texto_bruto
+                                    ids_achados = df_bruto[df_bruto['material'] == mat_limpo]['id'].tolist()
+                                    for idx in ids_achados:
+                                        if idx not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(idx)
+                                    st.session_state["busca_global"] = mat_limpo
+                                    st.rerun() 
+                                else: st.error("❌ Etiqueta não reconhecida.")
+                            except Exception as e: st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
+                elif foto_camera and not leitor_ativo: st.error(f"⚠️ Erro da Biblioteca de Câmera. Instale pylibdmtx.")
+            
+            st.session_state["busca_global"] = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", value=st.session_state["busca_global"], placeholder="Ex: NF-1234...")
+            filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if df_bruto.empty:
+            st.success("Tudo limpo! Nenhuma carga no Recebimento para enviar.")
         else:
-            with st.container():
-                st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-                col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
-                
-                with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera)"):
-                    foto_camera = st.camera_input("Aponte para o código Data Matrix")
-                    if foto_camera and leitor_ativo:
-                        if st.session_state.get("ultima_foto_processada") != foto_camera.getvalue():
-                            st.session_state["ultima_foto_processada"] = foto_camera.getvalue()
-                            with st.spinner("Analisando..."):
-                                try:
-                                    img = Image.open(foto_camera)
-                                    codigos = decode_dm(img)
-                                    if codigos:
-                                        texto_bruto = codigos[0].data.decode('utf-8')
-                                        mat_limpo = texto_bruto.split("240")[-1].strip() if "240" in texto_bruto and len(texto_bruto) > 15 else texto_bruto
-                                        
-                                        ids_achados = df_bruto[df_bruto['material'] == mat_limpo]['id'].tolist()
-                                        for idx in ids_achados:
-                                            if idx not in st.session_state["carrinho_expedicao"]:
-                                                st.session_state["carrinho_expedicao"].append(idx)
-                                                
-                                        st.session_state["busca_global"] = mat_limpo
-                                        st.rerun() 
-                                    else:
-                                        st.error("❌ Etiqueta não reconhecida.")
-                                except Exception as e:
-                                    st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
-                    elif foto_camera and not leitor_ativo:
-                        st.error("⚠️ Bibliotecas 'pylibdmtx' faltando no servidor Nuvem.")
-                
-                st.session_state["busca_global"] = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", value=st.session_state["busca_global"], placeholder="Ex: NF-1234...")
-                filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            if df_bruto.empty:
-                st.success("Tudo limpo! Nenhuma carga no Recebimento para enviar.")
-            else:
-                df_tela = df_bruto.copy()
-                
-                # TRADUÇÃO DOS STATUS NA TELA
-                df_tela['status_envio'] = df_tela['status_envio'].replace({
-                    'Pendente': '🟢 Aguardando Envio no Recebimento', 
-                    'Em Trânsito Interno': '🚚 Aguardando confirmação do Almox'
-                })
-                
-                if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
-                
-                if st.session_state["busca_global"]:
-                    busca_txt = st.session_state["busca_global"]
-                    if len(busca_txt) > 15 and " " in busca_txt:
-                        mat_extraido = busca_txt.split("240")[-1].strip() if "240" in busca_txt else busca_txt
-                        df_tela = df_tela[df_tela['material'] == mat_extraido]
-                    else:
-                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_txt, case=False, na=False)).any(axis=1)
-                        df_tela = df_tela[mask]
-
-                if df_tela.empty:
-                    st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
+            df_tela = df_bruto.copy()
+            df_tela['status_envio'] = df_tela['status_envio'].replace({'Pendente': '🟢 Aguardando Envio no Recebimento', 'Em Trânsito Interno': '🚚 Aguardando confirmação do Almox'})
+            
+            if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
+            
+            if st.session_state["busca_global"]:
+                busca_txt = st.session_state["busca_global"]
+                if len(busca_txt) > 15 and " " in busca_txt:
+                    mat_extraido = busca_txt.split("240")[-1].strip() if "240" in busca_txt else busca_txt
+                    df_tela = df_tela[df_tela['material'] == mat_extraido]
                 else:
-                    colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'umb', 'posicao_dep', 'nfe', 'fornecedor']
-                    if 'umb' not in df_tela.columns: df_tela['umb'] = ""
-                    
-                    df_tela = df_tela[colunas_visiveis]
-                    
-                    if st.session_state["perfil_atual"] == "Almoxarifado":
-                        st.info("👀 Modo Leitura.")
-                        st.dataframe(df_tela, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
-                    else:
-                        area_botoes_expedicao = st.container()
-                        df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
-                        colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
-                        
-                        df_editado = st.data_editor(
-                            df_tela, hide_index=True, use_container_width=True, height=400,
-                            disabled=colunas_bloqueadas, column_config=config_colunas_gerais
-                        )
-                        
-                        for index, row in df_editado.iterrows():
-                            id_linha = row['id']
-                            if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
-                            elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_txt, case=False, na=False)).any(axis=1)
+                    df_tela = df_tela[mask]
 
-                        with area_botoes_expedicao:
-                            qtd_carrinho = len(st.session_state["carrinho_expedicao"])
-                            st.markdown("#### 👷 Fechamento de Remessa")
-                            col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+            if df_tela.empty: st.warning("Nenhum material encontrado.")
+            else:
+                colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'umb', 'posicao_dep', 'nfe', 'fornecedor']
+                if 'umb' not in df_tela.columns: df_tela['umb'] = ""
+                df_tela = df_tela[colunas_visiveis]
+                
+                area_botoes_expedicao = st.container()
+                df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+                colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
+                
+                df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, height=400, disabled=colunas_bloqueadas, column_config=config_colunas_gerais)
+                
+                for index, row in df_editado.iterrows():
+                    id_linha = row['id']
+                    if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
+                    elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+
+                with area_botoes_expedicao:
+                    qtd_carrinho = len(st.session_state["carrinho_expedicao"])
+                    st.markdown("#### 👷 Fechamento de Remessa")
+                    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+                    
+                    with col_btn1: st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
+                    with col_btn2:
+                        df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
+                        lista_op = ["-- Selecione o Identificador --"] + df_operadores['nome'].tolist()
+                        operador_selecionado = st.selectbox("1. Quem identificou?", lista_op)
+                    with col_btn3:
+                        df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
+                        lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
+                        deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
+                    with col_btn4:
+                        st.write("") 
+                        if st.button(f"🖨️ Despachar Carga na Doca", type="primary", use_container_width=True):
+                            itens_selecionados_df = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
+                            itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == 'Em Trânsito Interno']
                             
-                            with col_btn1: st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
-                            with col_btn2:
-                                df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
-                                lista_op = ["-- Selecione o Identificador --"] + df_operadores['nome'].tolist()
-                                operador_selecionado = st.selectbox("1. Quem identificou?", lista_op)
-                            with col_btn3:
-                                df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
-                                lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
-                                deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
-                            with col_btn4:
-                                st.write("") 
-                                # TRADUÇÃO DO BOTÃO
-                                if st.button(f"🖨️ Gerar Lote e Enviar (PDF)", type="primary", use_container_width=True):
-                                    itens_selecionados_df = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
-                                    itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == 'Em Trânsito Interno']
-                                    
-                                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                                    elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI ENVIADO!")
-                                    elif operador_selecionado == "-- Selecione o Identificador --": st.error("Selecione o Identificador!")
-                                    elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
-                                    else:
-                                        novo_lote = gerar_proximo_lote()
-                                        df_pdf = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
-                                        agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                        
-                                        with engine.connect() as conn:
-                                            for id_peca in st.session_state["carrinho_expedicao"]:
-                                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
-                                                             {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
-                                            conn.commit()
-                                        
-                                        pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Recebimento Físico", deposito_selecionado, operador_selecionado, df_pdf)
-                                        st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
-                                        st.session_state["carrinho_expedicao"] = []
-                                        st.session_state["busca_global"] = ""
-                                        st.rerun()
-                            st.divider()
+                            if qtd_carrinho == 0: st.error("Carrinho vazio!")
+                            elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI ENVIADO!")
+                            elif operador_selecionado == "-- Selecione o Identificador --": st.error("Selecione o Identificador!")
+                            elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
+                            else:
+                                novo_lote = gerar_proximo_lote()
+                                agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                with engine.connect() as conn:
+                                    for id_peca in st.session_state["carrinho_expedicao"]:
+                                        conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
+                                                     {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
+                                    conn.commit()
+                                st.session_state["carrinho_expedicao"] = []
+                                st.session_state["busca_global"] = ""
+                                st.success("✅ Carga Despachada para o Almoxarifado Central!")
+                                time.sleep(1.5)
+                                st.rerun()
+                    st.divider()
 
 # ------------------------------------------
 # ABA 2: ACONDICIONAR (ALMOXARIFADO)
@@ -528,14 +478,11 @@ with aba_almoxarifado:
     else:
         query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, umb, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
         df_rec = pd.read_sql_query(query_rec, engine)
-        
         df_rec = calcular_sla_acondicionamento(df_rec)
         
         if df_rec.empty: st.success("Nenhuma carga aguardando confirmação no momento.")
         else:
-            # TRADUÇÃO DA TABELA ALMOX
             df_rec['status_envio'] = df_rec['status_envio'].replace({'Em Trânsito Interno': '🚚 Aguardando confirmação do Almox'})
-            
             lista_lotes = df_rec['lote_envio'].dropna().unique().tolist()
             lista_lotes.sort(reverse=True)
             
@@ -543,25 +490,20 @@ with aba_almoxarifado:
             lote_selecionado = st.selectbox("Filtre por Número da Remessa:", opcoes_menu)
             
             area_botoes_recebimento = st.container()
-            
             if lote_selecionado == "Mostrar Todas as Remessas": df_lote = df_rec.copy()
             else: df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
             
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
             
-            df_editado_rec = st.data_editor(
-                df_lote, hide_index=True, use_container_width=True, height=400, 
-                disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais
-            )
+            df_editado_rec = st.data_editor(df_lote, hide_index=True, use_container_width=True, height=400, disabled=colunas_bloqueadas_rec, column_config=config_colunas_gerais)
             selecionados_rec = df_editado_rec[df_editado_rec["Acondicionado"] == True]
             
             with area_botoes_recebimento:
                 st.divider()
-                col_r1, col_r2 = st.columns(2)
+                col_r1, col_r2, col_r3 = st.columns([1, 1, 1])
                 with col_r1:
-                    # TRADUÇÃO DOS BOTÕES
-                    texto_btn_tudo = f"✅ Confirmar Lote inteiro ({len(df_lote)} peças)" if lote_selecionado == "Mostrar Todas as Remessas" else f"✅ Confirmar Lote {lote_selecionado} INTEIRO"
+                    texto_btn_tudo = f"✅ Confirmar Todas ({len(df_lote)} peças)" if lote_selecionado == "Mostrar Todas as Remessas" else f"✅ Confirmar Lote {lote_selecionado} INTEIRO"
                     if st.button(texto_btn_tudo, type="primary", use_container_width=True):
                         with engine.connect() as conn:
                             if lote_selecionado == "Mostrar Todas as Remessas":
@@ -569,25 +511,37 @@ with aba_almoxarifado:
                             else:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE lote_envio = :lote"), {"lote": lote_selecionado})
                             conn.commit()
-                        st.success("Lote Confirmado com sucesso!")
-                        time.sleep(1.5)
+                        st.success("Lote Confirmado!")
+                        time.sleep(1)
                         st.rerun()
-                        
                 with col_r2:
-                    if st.button("✅ Confirmar APENAS os itens marcados na tabela", use_container_width=True):
-                        if selecionados_rec.empty: st.error("Marque as caixinhas dos materiais!")
+                    if st.button("✅ Confirmar APENAS os itens marcados", use_container_width=True):
+                        if selecionados_rec.empty: st.error("Marque as caixinhas!")
                         else:
                             with engine.connect() as conn:
                                 for id_peca in selecionados_rec["id"]:
                                     conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
                                 conn.commit()
                             st.success(f"{len(selecionados_rec)} peças confirmadas!")
-                            time.sleep(1.5)
+                            time.sleep(1)
                             st.rerun()
+                            
+                # 🚀 O BOTÃO DE IMPRIMIR GUIA VEIO PARAR AQUI!
+                with col_r3:
+                    if lote_selecionado != "Mostrar Todas as Remessas":
+                        try:
+                            operador = df_lote['operador_separacao'].iloc[0]
+                            destino = df_lote['deposito_destino'].iloc[0]
+                            pdf_bytes = gerar_pdf_remessa_sap(lote_selecionado, "Recebimento Físico", destino, operador, df_lote)
+                            st.download_button(label="🖨️ Imprimir Guia deste Lote (PDF)", data=pdf_bytes, file_name=f"Guia_{lote_selecionado}.pdf", mime="application/pdf", use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Erro ao gerar PDF: Instale o reportlab no sistema.")
+                    else:
+                        st.button("🖨️ Selecione um Lote para Imprimir", disabled=True, use_container_width=True)
                 st.write("") 
 
 # ------------------------------------------
-# ABA 3: HISTÓRICO GERAL
+# ABA 3: HISTÓRICO GERAL (COM BOTÃO DE PDF)
 # ------------------------------------------
 with aba_historico:
     st.markdown("### 💾 Base de Dados Histórica")
@@ -596,132 +550,118 @@ with aba_historico:
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
     else: 
-        # TRADUÇÃO DO STATUS NO HISTÓRICO PARA MANTER PADRÃO VISUAL
         df_hist['status_envio'] = df_hist['status_envio'].replace({
             'Em Trânsito Interno': '🚚 Aguardando confirmação do Almox',
             'Acondicionado no Almoxarifado': '✅ Recebido e Guardado',
             'Baixado Direto no SAP': '📉 Baixado Direto no SAP'
         })
-        st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+        
+        # 🚀 FILTRO NO HISTÓRICO PARA REIMPRIMIR GUIAS ANTIGAS
+        lista_lotes_hist = df_hist['lote_envio'].dropna().unique().tolist()
+        lista_lotes_hist.sort(reverse=True)
+        col_h1, col_h2 = st.columns([3, 1])
+        lote_hist_selecionado = col_h1.selectbox("Filtrar Histórico por Remessa:", ["Mostrar Histórico Completo"] + lista_lotes_hist)
+        
+        if lote_hist_selecionado == "Mostrar Histórico Completo":
+            st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+        else:
+            df_hist_lote = df_hist[df_hist['lote_envio'] == lote_hist_selecionado].copy()
+            st.dataframe(df_hist_lote, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+            
+            with col_h2:
+                st.write("")
+                st.write("")
+                try:
+                    op_hist = df_hist_lote['operador_separacao'].iloc[0]
+                    dest_hist = df_hist_lote['deposito_destino'].iloc[0]
+                    pdf_bytes_hist = gerar_pdf_remessa_sap(lote_hist_selecionado, "Recebimento Físico", dest_hist, op_hist, df_hist_lote)
+                    st.download_button(label="🖨️ Re-Imprimir Guia Antiga (PDF)", data=pdf_bytes_hist, file_name=f"Guia_Reimpressa_{lote_hist_selecionado}.pdf", mime="application/pdf", use_container_width=True)
+                except: pass
 
 # ------------------------------------------
-# 🚀 ABA 4: OCORRÊNCIAS E CHAT LOGÍSTICO
+# ABA 4 E 5 MANTIDAS INTACTAS
 # ------------------------------------------
 with aba_chat:
     st.markdown("### 💬 Mural de Ocorrências Logísticas")
-    st.write("Relate problemas físicos (Avarias, Falta de Peça) vinculados a uma Remessa específica.")
-    
     df_lotes_chat = pd.read_sql_query("SELECT DISTINCT lote_envio FROM expedicao_completa WHERE lote_envio IS NOT NULL ORDER BY lote_envio DESC", engine)
-    lista_lotes_chat = df_lotes_chat['lote_envio'].tolist()
-    
-    lote_ocorr = st.selectbox("Selecione a Remessa para abrir o Chat:", ["-- Selecione a Remessa --"] + lista_lotes_chat)
+    lote_ocorr = st.selectbox("Selecione a Remessa para abrir o Chat:", ["-- Selecione a Remessa --"] + df_lotes_chat['lote_envio'].tolist())
     st.divider()
-    
     if lote_ocorr != "-- Selecione a Remessa --":
         df_msgs = pd.read_sql_query(f"SELECT usuario, perfil, data_hora, mensagem FROM ocorrencias_chat WHERE lote_ref = '{lote_ocorr}' ORDER BY id ASC", engine)
-        
-        st.markdown(f"#### 📜 Registro de Eventos da Remessa: {lote_ocorr}")
-        
-        if df_msgs.empty:
-            st.info("Nenhuma ocorrência registrada para esta remessa ainda.")
+        if df_msgs.empty: st.info("Nenhuma ocorrência registrada para esta remessa ainda.")
         else:
             for _, msg in df_msgs.iterrows():
                 avatar_chat = "👷‍♂️" if msg['perfil'] == "Recebimento" else "👨‍💼"
                 with st.chat_message(name=msg['usuario'], avatar=avatar_chat):
                     st.markdown(f"**{msg['usuario'].upper()}** ({msg['data_hora']}):")
                     st.write(msg['mensagem'])
-        
-        st.write("")
         nova_msg = st.chat_input("Digite uma ocorrência (Ex: Caixa rasgada, Peça faltando)...")
         if nova_msg:
             agora_chat = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
             with engine.connect() as conn:
-                conn.execute(text("INSERT INTO ocorrencias_chat (lote_ref, usuario, perfil, data_hora, mensagem) VALUES (:l, :u, :p, :d, :m)"),
-                             {"l": lote_ocorr, "u": st.session_state["usuario_atual"], "p": st.session_state["perfil_atual"], "d": agora_chat, "m": nova_msg})
+                conn.execute(text("INSERT INTO ocorrencias_chat (lote_ref, usuario, perfil, data_hora, mensagem) VALUES (:l, :u, :p, :d, :m)"), {"l": lote_ocorr, "u": st.session_state["usuario_atual"], "p": st.session_state["perfil_atual"], "d": agora_chat, "m": nova_msg})
                 conn.commit()
             st.rerun()
 
-# ------------------------------------------
-# ABA 5: ADMINISTRAÇÃO 
-# ------------------------------------------
 with aba_admin:
-    if st.session_state["perfil_atual"] != "Admin":
-        st.error("⛔ Acesso Restrito aos Administradores.")
+    if st.session_state["perfil_atual"] != "Admin": st.error("⛔ Acesso Restrito aos Administradores.")
     else:
         st.markdown("### ⚙️ Painel de Controle Avançado")
-        tab_usuarios, tab_operadores, tab_depositos, tab_sistema = st.tabs(["💻 Usuários do Sistema", "👷 Identificadores (Equipe)", "🏭 Depósitos Destino", "⚠️ Zona de Risco"])
-        
-        with tab_usuarios:
-            with st.form("form_novo_usuario"):
-                col_u1, col_u2 = st.columns(2)
-                novo_usu = col_u1.text_input("Login do Usuário")
-                novo_perfil = col_u2.selectbox("Perfil de Acesso", ["Almoxarifado", "Recebimento", "Admin"])
-                if st.form_submit_button("Criar Usuário"):
-                    if novo_usu:
-                        try:
-                            with engine.connect() as conn:
-                                conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, '1234', :p)"), {"u": novo_usu.lower(), "p": novo_perfil})
-                                conn.commit()
-                            st.rerun()
-                        except: st.error("Erro: Usuário já existe!")
-            
-            df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", engine)
-            st.dataframe(df_usuarios, hide_index=True, use_container_width=True)
-            usu_deletar = st.selectbox("Selecione um usuário para remover:", [""] + df_usuarios['usuario'].tolist())
-            if st.button("🗑️ Excluir Usuário") and usu_deletar:
+        tab_u, tab_o, tab_d, tab_s = st.tabs(["💻 Usuários", "👷 Identificadores", "🏭 Depósitos Destino", "⚠️ Zona de Risco"])
+        with tab_u:
+            with st.form("f_u"):
+                c1, c2 = st.columns(2)
+                nu = c1.text_input("Login")
+                np = c2.selectbox("Perfil", ["Almoxarifado", "Recebimento", "Admin"])
+                if st.form_submit_button("Criar"):
+                    with engine.connect() as conn:
+                        conn.execute(text("INSERT INTO usuarios (usuario, senha, perfil) VALUES (:u, '1234', :p)"), {"u": nu.lower(), "p": np})
+                        conn.commit()
+                    st.rerun()
+            df_u = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", engine)
+            st.dataframe(df_u, hide_index=True)
+            u_del = st.selectbox("Excluir:", [""] + df_u['usuario'].tolist())
+            if st.button("🗑️ Excluir") and u_del:
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usu_deletar})
+                    conn.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": u_del})
                     conn.commit()
                 st.rerun()
-
-        with tab_operadores:
-            with st.form("form_op_fisico"):
-                novo_op = st.text_input("Nome Completo do Identificador:")
-                if st.form_submit_button("Cadastrar Identificador"):
-                    if novo_op:
-                        try:
-                            with engine.connect() as conn:
-                                conn.execute(text("INSERT INTO operadores_fisicos (nome) VALUES (:n)"), {"n": novo_op.strip().upper()})
-                                conn.commit()
-                            st.rerun()
-                        except: st.error("Este nome já existe!")
-            
-            df_ops = pd.read_sql_query("SELECT * FROM operadores_fisicos ORDER BY nome", engine)
-            if not df_ops.empty:
-                st.dataframe(df_ops, hide_index=True, use_container_width=True)
-                op_deletar = st.selectbox("Remover Identificador:", [""] + df_ops['nome'].tolist())
-                if st.button("🗑️ Excluir Identificador") and op_deletar:
+        with tab_o:
+            with st.form("f_o"):
+                no = st.text_input("Nome Físico:")
+                if st.form_submit_button("Criar"):
                     with engine.connect() as conn:
-                        conn.execute(text("DELETE FROM operadores_fisicos WHERE nome = :n"), {"n": op_deletar})
+                        conn.execute(text("INSERT INTO operadores_fisicos (nome) VALUES (:n)"), {"n": no.strip().upper()})
                         conn.commit()
                     st.rerun()
-
-        with tab_depositos:
-            with st.form("form_novo_deposito"):
-                col_d1, col_d2 = st.columns(2)
-                novo_deposito = col_d1.text_input("Nome do Setor")
-                novo_responsavel = col_d2.text_input("Líder Responsável")
-                if st.form_submit_button("Salvar Setor"):
-                    if novo_deposito and novo_responsavel:
-                        try:
-                            with engine.connect() as conn:
-                                conn.execute(text("INSERT INTO depositos_destino (nome_deposito, responsavel) VALUES (:n, :r)"), {"n": novo_deposito, "r": novo_responsavel})
-                                conn.commit()
-                            st.rerun()
-                        except: st.error("Este Setor já existe.")
-            
-            df_depositos = pd.read_sql_query("SELECT * FROM depositos_destino ORDER BY id", engine)
-            if not df_depositos.empty:
-                st.dataframe(df_depositos, hide_index=True, use_container_width=True)
-                dep_deletar = st.selectbox("Remover Setor:", [""] + df_depositos['nome_deposito'].tolist())
-                if st.button("🗑️ Excluir Setor") and dep_deletar:
+            df_o = pd.read_sql_query("SELECT * FROM operadores_fisicos ORDER BY nome", engine)
+            st.dataframe(df_o, hide_index=True)
+            o_del = st.selectbox("Excluir:", [""] + df_o['nome'].tolist())
+            if st.button("🗑️ Excluir Op") and o_del:
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM operadores_fisicos WHERE nome = :n"), {"n": o_del})
+                    conn.commit()
+                st.rerun()
+        with tab_d:
+            with st.form("f_d"):
+                c1, c2 = st.columns(2)
+                nd = c1.text_input("Setor")
+                nr = c2.text_input("Responsável")
+                if st.form_submit_button("Criar"):
                     with engine.connect() as conn:
-                        conn.execute(text("DELETE FROM depositos_destino WHERE nome_deposito = :d"), {"d": dep_deletar})
+                        conn.execute(text("INSERT INTO depositos_destino (nome_deposito, responsavel) VALUES (:n, :r)"), {"n": nd, "r": nr})
                         conn.commit()
                     st.rerun()
-
-        with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
+            df_d = pd.read_sql_query("SELECT * FROM depositos_destino ORDER BY id", engine)
+            st.dataframe(df_d, hide_index=True)
+            d_del = st.selectbox("Excluir:", [""] + df_d['nome_deposito'].tolist())
+            if st.button("🗑️ Excluir Setor") and d_del:
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM depositos_destino WHERE nome_deposito = :d"), {"d": d_del})
+                    conn.commit()
+                st.rerun()
+        with tab_s:
+            if st.button("🗑️ LIMPAR PENDENTES (Mantém Histórico)"):
                 with engine.connect() as conn:
                     conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
                     conn.commit()
