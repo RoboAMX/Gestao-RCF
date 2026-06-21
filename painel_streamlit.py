@@ -45,7 +45,7 @@ st.markdown("""
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO E ATUALIZAÇÃO BLINDADA DO BANCO
+# 1. CONEXÃO E ATUALIZAÇÃO DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
@@ -59,7 +59,6 @@ with engine.connect() as conn:
             nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
         )
     '''))
-    
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
@@ -213,7 +212,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS (PDF E SLA)
+# 4. FUNÇÕES GERAIS, SLA E PDF
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -269,11 +268,7 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     elementos.append(Spacer(1, 15))
     
     data_hora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-    info_html = f"""
-    <b>Documento (Lote):</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Data/Hora Emissão:</b> {data_hora}<br/>
-    <b>Centro/Dep. Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Centro/Dep. Destino:</b> {destino}<br/>
-    <b>Operador Físico:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Usuário Emissor:</b> {st.session_state['usuario_atual'].upper()}
-    """
+    info_html = f"<b>Lote:</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissão:</b> {data_hora}<br/><b>Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Destino:</b> {destino}<br/><b>Operador:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissor:</b> {st.session_state['usuario_atual'].upper()}"
     elementos.append(Paragraph(info_html, estilo_info))
     elementos.append(Spacer(1, 20))
     
@@ -283,19 +278,10 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
         
     tabela = Table(dados_tabela, colWidths=[80, 260, 50, 80, 110, 220])
     tabela.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0E0E0')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
-        ('ALIGN', (0,0), (-1,0), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 9),
-        ('BOTTOMPADDING', (0,0), (-1,0), 6),
-        ('TOPPADDING', (0,0), (-1,0), 6),
-        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,1), (-1,-1), 8),
-        ('ALIGN', (2,1), (2,-1), 'CENTER'),
-        ('ALIGN', (3,1), (3,-1), 'CENTER'),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0E0E0')), ('TEXTCOLOR', (0,0), (-1,0), colors.black), ('ALIGN', (0,0), (-1,0), 'CENTER'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0), (-1,0), 9), ('BOTTOMPADDING', (0,0), (-1,0), 6), ('TOPPADDING', (0,0), (-1,0), 6),
+        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'), ('FONTSIZE', (0,1), (-1,-1), 8), ('ALIGN', (2,1), (2,-1), 'CENTER'), ('ALIGN', (3,1), (3,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     elementos.append(tabela)
     elementos.append(Spacer(1, 50))
@@ -325,7 +311,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD)
+# 5. TELA PRINCIPAL E DASHBOARD
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -373,13 +359,15 @@ with aba_recebimento:
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-                col_b1, col_b2 = st.columns([3, 1])
-                busca_global = col_b1.text_input("🔎 BIPE O CÓDIGO DA ETIQUETA AQUI (Ou digite Material, NF, Fornecedor):", placeholder="Bipe o Data Matrix ou digite...")
-                filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+                col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
+                # 🚀 AS DUAS CAIXAS SEPARADAS DE BUSCA!
+                busca_qr = col_b1.text_input("📷 Bipe a Etiqueta WEG (Laser/Câmera):", placeholder="Clique aqui e bipe a etiqueta...")
+                busca_manual = col_b2.text_input("🔎 Ou pesquise manualmente:", placeholder="Ex: NF-1234, Fornecedor...")
+                filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
             if df_bruto.empty:
@@ -390,20 +378,19 @@ with aba_recebimento:
                 
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 
-                # 🚀 A LÓGICA MÁGICA DE BUSCA DO LEITOR LASER (BUSCA REVERSA)
-                if busca_global:
-                    # Se for um código de barras gigante com espaços (Padrão Etiqueta WEG)
-                    if len(busca_global) > 15 and " " in busca_global:
-                        mask_mat = df_tela['material'].astype(str).apply(lambda x: x in busca_global if x != "" else False)
-                        mask_pos = df_tela['posicao_dep'].astype(str).apply(lambda x: x in busca_global if x != "" else False)
-                        df_tela = df_tela[mask_mat | mask_pos]
-                    else:
-                        # Busca normal digitada
-                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-                        df_tela = df_tela[mask]
+                # 🚀 O DECODIFICADOR DO DATA MATRIX SAP
+                if busca_qr:
+                    mat_extraido = busca_qr
+                    if "240" in busca_qr and len(busca_qr) > 15:
+                        mat_extraido = busca_qr.split("240")[-1].strip()
+                    df_tela = df_tela[df_tela['material'] == mat_extraido]
+                    
+                elif busca_manual:
+                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_manual, case=False, na=False)).any(axis=1)
+                    df_tela = df_tela[mask]
 
                 if df_tela.empty:
-                    st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
+                    st.warning("Nenhum material encontrado.")
                 else:
                     colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
@@ -468,7 +455,7 @@ with aba_recebimento:
                             st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR 
+# ABA 2: ACONDICIONAR (ALMOXARIFADO LENDO LOTES E GERAL)
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
@@ -484,13 +471,22 @@ with aba_almoxarifado:
             lista_lotes = df_rec['lote_envio'].dropna().unique().tolist()
             lista_lotes.sort(reverse=True)
             
-            opcoes_menu = ["Mostrar Todos os Lotes Pendentes"] + lista_lotes
-            lote_selecionado = st.selectbox("Filtre por Lote de Recebimento:", opcoes_menu)
+            # CAIXAS SEPARADAS NO RECEBIMENTO TAMBÉM
+            col_r_busca1, col_r_busca2 = st.columns(2)
+            lote_selecionado = col_r_busca1.selectbox("Filtre por Lote de Recebimento:", ["Mostrar Todos os Lotes Pendentes"] + lista_lotes)
+            busca_qr_rec = col_r_busca2.text_input("📷 Bipe a Etiqueta WEG para achar na carga (Laser/Câmera):", key="qr_rec")
             
             area_botoes_recebimento = st.container()
             
             if lote_selecionado == "Mostrar Todos os Lotes Pendentes": df_lote = df_rec.copy()
             else: df_lote = df_rec[df_rec['lote_envio'] == lote_selecionado].copy()
+            
+            # SE ELE BIPAR O CÓDIGO NO ALMOXARIFADO, ACHA A PEÇA NA PRATELEIRA NA HORA!
+            if busca_qr_rec:
+                mat_extraido_rec = busca_qr_rec
+                if "240" in busca_qr_rec and len(busca_qr_rec) > 15:
+                    mat_extraido_rec = busca_qr_rec.split("240")[-1].strip()
+                df_lote = df_lote[df_lote['material'] == mat_extraido_rec]
             
             df_lote.insert(0, "Acondicionado", False)
             colunas_bloqueadas_rec = [col for col in df_lote.columns if col != "Acondicionado"]
@@ -508,10 +504,11 @@ with aba_almoxarifado:
                     texto_btn_tudo = f"✅ Acondicionar TODAS as {len(df_lote)} peças visíveis na tela" if lote_selecionado == "Mostrar Todos os Lotes Pendentes" else f"✅ Acondicionar LOTE {lote_selecionado} INTEIRO"
                     if st.button(texto_btn_tudo, type="primary", use_container_width=True):
                         with engine.connect() as conn:
-                            if lote_selecionado == "Mostrar Todos os Lotes Pendentes":
+                            if lote_selecionado == "Mostrar Todos os Lotes Pendentes" and not busca_qr_rec:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE status_envio = 'Em Trânsito Interno'"))
                             else:
-                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE lote_envio = :lote"), {"lote": lote_selecionado})
+                                for id_peca in df_lote["id"]:
+                                    conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE id = :id_peca"), {"id_peca": int(id_peca)})
                             conn.commit()
                         st.success("Acondicionamento registrado com sucesso!")
                         time.sleep(1.5)
@@ -621,9 +618,9 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES E EM TRÂNSITO (Manter Histórico)"):
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"))
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
