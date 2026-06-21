@@ -27,63 +27,33 @@ except ModuleNotFoundError:
     robo_disponivel = False
 
 # ==========================================
-# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS (DESIGN ADAPTÁVEL LIGHT/DARK)
+# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS
 # ==========================================
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-        
-        /* Fundo principal da página puxando a variável inteligente do Streamlit */
-        .stApp { background-color: var(--background-color); } 
-        
-        /* Títulos e Fontes (Azul WEG no Light, Azul Claro no Dark) */
-        h1, h2, h3, h4, h5 { font-family: 'Segoe UI', sans-serif; }
-        
-        /* Botões Primários WEG */
-        div.stButton > button:first-child { 
-            background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; 
-        }
+        .stApp { background-color: #E6F0F9; } 
+        h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
+        div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        
-        /* CAIXAS DOS CARDS (Filtros, Login, etc) - Adaptáveis ao Tema Escuro */
-        .css-1r6slb0, .css-1n76uvr { 
-            background-color: var(--secondary-background-color); /* Fica branco no Light e cinza chumbo no Dark */
-            color: var(--text-color);
-            padding: 20px; border-radius: 8px; 
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.1); 
-            border-top: 4px solid #00579D; 
-            margin-bottom: 10px;
-        }
-        
-        /* DASHBOARD - CARTÕES DE KPI (SLA) */
-        .kpi-card { 
-            background-color: var(--secondary-background-color); 
-            padding: 20px; border-radius: 8px; text-align: center; 
-            box-shadow: 0px 4px 10px rgba(0,0,0,0.1); 
-        }
+        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); }
         .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
-        .kpi-titulo { font-size: 14px; color: var(--text-color); font-weight: bold; text-transform: uppercase; }
-        
-        /* Cores Específicas dos Relógios KPI */
-        .kpi-azul .kpi-valor { color: #0088CC; } /* Azul mais vibrante para aparecer bem no preto */
-        .kpi-verde .kpi-valor { color: #4CAF50; }
-        .kpi-amarelo .kpi-valor { color: #FFB300; } 
-        .kpi-vermelho .kpi-valor { color: #F44336; }
-        .kpi-roxo .kpi-valor { color: #AB47BC; }
-        .kpi-vermelho { border-bottom: 4px solid #F44336; } 
-        .kpi-roxo { border-bottom: 4px solid #AB47BC; }
-        
-        /* Arruma as abas no celular para não sumirem */
-        button[data-baseweb="tab"] { font-weight: bold; }
+        .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
+        .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
+        .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
+        .kpi-roxo .kpi-valor { color: #9c27b0; }
+        .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
+        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
+        div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
     </style>
 """, unsafe_allow_html=True)
 
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO E ATUALIZAÇÃO DO BANCO
+# 1. CONEXÃO E ATUALIZAÇÃO DO BANCO DE DADOS
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
@@ -97,14 +67,29 @@ with engine.connect() as conn:
             nfe TEXT, fornecedor TEXT, status_envio TEXT DEFAULT 'Pendente'
         )
     '''))
+    
+    # NOVAS COLUNAS BLINDADAS
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS lote_envio TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS operador_separacao TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS deposito_destino TEXT"))
     conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS data_hora_despacho TEXT"))
+    conn.execute(text("ALTER TABLE expedicao_completa ADD COLUMN IF NOT EXISTS umb TEXT")) # 🚀 COLUNA UMB ADICIONADA!
     
     conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
     conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
     conn.execute(text("CREATE TABLE IF NOT EXISTS operadores_fisicos (id SERIAL PRIMARY KEY, nome TEXT UNIQUE)"))
+    
+    # 🚀 NOVA TABELA DE CHAT/OCORRÊNCIAS
+    conn.execute(text('''
+        CREATE TABLE IF NOT EXISTS ocorrencias_chat (
+            id SERIAL PRIMARY KEY,
+            lote_ref TEXT,
+            usuario TEXT,
+            perfil TEXT,
+            data_hora TEXT,
+            mensagem TEXT
+        )
+    '''))
     conn.commit()
 
     if conn.execute(text("SELECT COUNT(*) FROM usuarios")).scalar() == 0:
@@ -217,9 +202,14 @@ if st.session_state["perfil_atual"] == "Admin":
                     df_pb['tp'] = df_robo.get('Tp.', df_robo.get('Tp', '')).apply(limpar_sujeira_sap)
                     df_pb['posicao_dep'] = df_robo.get('Posicao', df_robo.get('Posição Dep.', '')).apply(limpar_sujeira_sap)
                     df_pb['nfe'] = df_robo.get('NF', df_robo.get('NFE', '')).apply(limpar_sujeira_sap)
-                    df_pb['estoque'] = df_robo.get('Quantidade', df_robo.get('Estoque', 0))
-                    df_pb['estoque'] = df_pb['estoque'].astype(str).str.replace(r'[^\d.,]', '', regex=True).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                    
+                    # 🚀 NOVA LÓGICA DE EXTRAÇÃO UMB VS ESTOQUE
+                    estoque_sujo = df_robo.get('Quantidade', df_robo.get('Estoque', '')).astype(str)
+                    df_pb['umb'] = estoque_sujo.str.replace(r'[\d.,\s]', '', regex=True).str.upper() # Extrai só as letras
+                    
+                    df_pb['estoque'] = estoque_sujo.str.replace(r'[^\d.,]', '', regex=True).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                     df_pb['estoque'] = pd.to_numeric(df_pb['estoque'], errors='coerce').fillna(0.0)
+                    
                     df_pb['data_em'] = df_robo.get('Data_Entrada', df_robo.get('Data EM', ''))
                     df_pb['data_necess'] = df_robo.get('Data_Necess', df_robo.get('Data Necess.', ''))
                     df_pb['fornecedor'] = df_robo.get('Fornecedor', '')
@@ -260,7 +250,6 @@ def calcular_sla_pandas(df):
     df['data_real'] = pd.to_datetime(df['data_em'], format='mixed', dayfirst=True, errors='coerce')
     hoje = pd.Timestamp(datetime.now().date())
     df['dias_parado'] = (hoje - df['data_real']).dt.days.fillna(0).astype(int)
-    
     def classificar_regra(row):
         tipo = str(row['tipo_estoque']).upper()
         if 'Q' in tipo or 'CQ' in tipo: return "🟣 BLOQ. QUALIDADE"
@@ -301,14 +290,20 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     
     elementos.append(Paragraph(f"GUIA DE TRANSFERÊNCIA DE MATERIAIS - WEG", estilo_titulo))
     elementos.append(Spacer(1, 15))
+    
     data_hora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     info_html = f"<b>Documento (Lote):</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissão:</b> {data_hora}<br/><b>Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Destino:</b> {destino}<br/><b>Operador Físico:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Usuário Emissor:</b> {st.session_state['usuario_atual'].upper()}"
     elementos.append(Paragraph(info_html, estilo_info))
     elementos.append(Spacer(1, 20))
     
-    dados_tabela = [["Material", "Descrição", "Qtd", "Posição", "Nota Fiscal", "Fornecedor"]]
+    dados_tabela = [["Material", "Descrição", "Qtd UMB", "Posição", "Nota Fiscal", "Fornecedor"]]
     for _, row in df_itens.iterrows():
-        dados_tabela.append([str(row['material']), str(row['descricao'])[:45], str(row['estoque']), str(row['posicao_dep']), str(row['nfe']), str(row['fornecedor'])[:35]])
+        # 🚀 JUNTANDO QUANTIDADE COM A UMB NOVA NO PDF!
+        umb = row.get('umb', '')
+        if pd.isna(umb): umb = ''
+        qtd_formatada = f"{row['estoque']} {umb}".strip()
+        
+        dados_tabela.append([str(row['material']), str(row['descricao'])[:45], qtd_formatada, str(row['posicao_dep']), str(row['nfe']), str(row['fornecedor'])[:35]])
         
     tabela = Table(dados_tabela, colWidths=[80, 260, 50, 80, 110, 220])
     tabela.setStyle(TableStyle([
@@ -334,18 +329,19 @@ config_colunas_gerais = {
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Separador", width="medium"),
     "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
-    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"),
+    "SLA_Interno": st.column_config.TextColumn("Relógio Almox.", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
-    "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
+    "estoque": st.column_config.NumberColumn("Qtd", width="small"), 
+    "umb": st.column_config.TextColumn("UM", width="small"), # 🚀 NOVA COLUNA NA TELA             
     "posicao_dep": st.column_config.TextColumn("Posição", width="small"),
     "nfe": st.column_config.TextColumn("NF", width="medium"),
     "fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
-    "status_envio": st.column_config.TextColumn("Status Carga", width="small")
+    "status_envio": st.column_config.TextColumn("Status", width="small")
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
+# 5. TELA PRINCIPAL E DASHBOARD
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -365,11 +361,12 @@ if not df_dashboard.empty:
     c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
     st.write("")
 
-aba_recebimento, aba_almoxarifado, aba_historico, aba_admin = st.tabs([
-    "📋 1. DESPACHAR (Doca de Recebimento)", 
+aba_recebimento, aba_almoxarifado, aba_historico, aba_chat, aba_admin = st.tabs([
+    "📋 1. DESPACHAR (Doca)", 
     "📦 2. ACONDICIONAR (Almoxarifado)", 
-    "💾 3. HISTÓRICO GERAL", 
-    "⚙️ 4. ADMINISTRAÇÃO"
+    "💾 3. HISTÓRICO GERAL",
+    "💬 4. MURAL DE OCORRÊNCIAS", # 🚀 NOVA ABA AQUI
+    "⚙️ 5. ADMINISTRAÇÃO"
 ])
 
 # ------------------------------------------
@@ -379,7 +376,6 @@ with aba_recebimento:
     if st.session_state["pdf_pronto"] is not None:
         st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
         st.success(f"🎉 Carga despachada com sucesso! (Lote: {st.session_state['pdf_pronto']['lote']})")
-        st.write("Imprima a Guia de Transferência de Material (padrão SAP) e anexe fisicamente à carga.")
         st.download_button(
             label="🖨️ Baixar Guia de Remessa (PDF)",
             data=st.session_state["pdf_pronto"]["bytes"], file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
@@ -393,7 +389,7 @@ with aba_recebimento:
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
@@ -424,9 +420,8 @@ with aba_recebimento:
                                 except Exception as e:
                                     st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
                     elif foto_camera and not leitor_ativo:
-                        st.error("⚠️ As bibliotecas de leitura ('pylibdmtx') não foram encontradas no servidor.")
+                        st.error("⚠️ Bibliotecas 'pylibdmtx' faltando no servidor Nuvem.")
                 
-                # BUSCA MANUAL AGORA FICA GUARDADA NA MEMÓRIA!
                 st.session_state["busca_global"] = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", value=st.session_state["busca_global"], placeholder="Ex: NF-1234...")
                 filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -436,7 +431,6 @@ with aba_recebimento:
             else:
                 df_tela = df_bruto.copy()
                 df_tela['status_envio'] = df_tela['status_envio'].replace({'Pendente': '🟢 AGUARDANDO DOCA', 'Em Trânsito Interno': '🚚 JÁ DESPACHADO'})
-                
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 
                 if st.session_state["busca_global"]:
@@ -451,7 +445,11 @@ with aba_recebimento:
                 if df_tela.empty:
                     st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
                 else:
-                    colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
+                    # 🚀 A COLUNA UMB ESTÁ AQUI NA VISÃO!
+                    colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'umb', 'posicao_dep', 'nfe', 'fornecedor']
+                    # Garante que a coluna UMB não quebre se o banco ainda não tiver dado
+                    if 'umb' not in df_tela.columns: df_tela['umb'] = ""
+                    
                     df_tela = df_tela[colunas_visiveis]
                     
                     if st.session_state["perfil_atual"] == "Almoxarifado":
@@ -510,18 +508,18 @@ with aba_recebimento:
                                         pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
                                         st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
                                         st.session_state["carrinho_expedicao"] = []
-                                        st.session_state["busca_global"] = "" # Limpa a caixa depois de despachar!
+                                        st.session_state["busca_global"] = ""
                                         st.rerun()
                             st.divider()
 
 # ------------------------------------------
-# ABA 2, 3 E 4
+# ABA 2: ACONDICIONAR 
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
-        st.error("⛔ Acesso Restrito.")
+        st.error("⛔ Acesso Restrito: O seu perfil é da **Doca**.")
     else:
-        query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
+        query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, umb, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
         df_rec = pd.read_sql_query(query_rec, engine)
         
         df_rec = calcular_sla_acondicionamento(df_rec)
@@ -577,14 +575,62 @@ with aba_almoxarifado:
                             st.rerun()
                 st.write("") 
 
+# ------------------------------------------
+# ABA 3: HISTÓRICO GERAL
+# ------------------------------------------
 with aba_historico:
     st.markdown("### 💾 Base de Dados Histórica")
-    query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
+    query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, umb, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
     
     if df_hist.empty: st.info("Nenhum material movimentado.")
     else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
+# ------------------------------------------
+# 🚀 ABA 4: OCORRÊNCIAS E CHAT LOGÍSTICO
+# ------------------------------------------
+with aba_chat:
+    st.markdown("### 💬 Mural de Ocorrências Logísticas")
+    st.write("Relate problemas físicos (Avarias, Falta de Peça) vinculados a um Lote específico para investigação.")
+    
+    # Pega todos os lotes que já existem no banco para o dropdown
+    df_lotes_chat = pd.read_sql_query("SELECT DISTINCT lote_envio FROM expedicao_completa WHERE lote_envio IS NOT NULL ORDER BY lote_envio DESC", engine)
+    lista_lotes_chat = df_lotes_chat['lote_envio'].tolist()
+    
+    lote_ocorr = st.selectbox("Selecione o Lote para abrir o Chat:", ["-- Selecione um Lote --"] + lista_lotes_chat)
+    st.divider()
+    
+    if lote_ocorr != "-- Selecione um Lote --":
+        # Puxa o histórico de chat desse lote
+        df_msgs = pd.read_sql_query(f"SELECT usuario, perfil, data_hora, mensagem FROM ocorrencias_chat WHERE lote_ref = '{lote_ocorr}' ORDER BY id ASC", engine)
+        
+        # Desenha as mensagens no padrão WhatsApp/Chat
+        st.markdown(f"#### 📜 Registro de Eventos do Lote: {lote_ocorr}")
+        
+        if df_msgs.empty:
+            st.info("Nenhuma ocorrência registrada para este lote ainda.")
+        else:
+            for _, msg in df_msgs.iterrows():
+                # Chat message nativo do Streamlit!
+                avatar_chat = "👷‍♂️" if msg['perfil'] == "Recebimento" else "👨‍💼"
+                with st.chat_message(name=msg['usuario'], avatar=avatar_chat):
+                    st.markdown(f"**{msg['usuario'].upper()}** ({msg['data_hora']}):")
+                    st.write(msg['mensagem'])
+        
+        st.write("")
+        # Caixa de Digitação do Chat
+        nova_msg = st.chat_input("Digite uma ocorrência para este lote (Ex: Caixa rasgada, Peça faltando)...")
+        if nova_msg:
+            agora_chat = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+            with engine.connect() as conn:
+                conn.execute(text("INSERT INTO ocorrencias_chat (lote_ref, usuario, perfil, data_hora, mensagem) VALUES (:l, :u, :p, :d, :m)"),
+                             {"l": lote_ocorr, "u": st.session_state["usuario_atual"], "p": st.session_state["perfil_atual"], "d": agora_chat, "m": nova_msg})
+                conn.commit()
+            st.rerun()
+
+# ------------------------------------------
+# ABA 5: ADMINISTRAÇÃO 
+# ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
