@@ -5,6 +5,9 @@ import time
 from datetime import datetime
 import io
 
+# ==========================================
+# 📦 IMPORTAÇÕES E TRATAMENTO DE ERROS (O DETETIVE)
+# ==========================================
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -13,12 +16,15 @@ try:
 except ImportError:
     pass
 
+# TIRA A VENDA DO PYTHON! Vamos ver o erro real da câmera:
 try:
     from PIL import Image
     from pylibdmtx.pylibdmtx import decode as decode_dm
     leitor_ativo = True
-except ImportError:
+    erro_real = ""
+except Exception as e:
     leitor_ativo = False
+    erro_real = str(e)
 
 try:
     import agente_almoxweb 
@@ -46,15 +52,13 @@ st.markdown("""
         .kpi-roxo .kpi-valor { color: #9c27b0; }
         .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
         .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
-        /* Deixa o botão da câmera mais bonitinho */
-        div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
     </style>
 """, unsafe_allow_html=True)
 
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO COM BANCO DE DADOS
+# 1. CONEXÃO E ATUALIZAÇÃO BLINDADA DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
@@ -99,8 +103,6 @@ if "logado" not in st.session_state:
 
 if "carrinho_expedicao" not in st.session_state: st.session_state["carrinho_expedicao"] = []
 if "pdf_pronto" not in st.session_state: st.session_state["pdf_pronto"] = None
-# MEMÓRIA PARA GUARDAR O CÓDIGO DA CÂMERA
-if "codigo_lido_camera" not in st.session_state: st.session_state["codigo_lido_camera"] = ""
 
 if not st.session_state["logado"]:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -223,7 +225,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF
+# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -318,7 +320,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL E DASHBOARD
+# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -366,34 +368,37 @@ with aba_recebimento:
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-                col_b1, col_b2 = st.columns([3, 1])
+                col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
                 
-                # A Busca "Sempre Aberta" e a Câmera Escondida no Expander
-                busca_global = col_b1.text_input("🔎 Pesquise o material (Laser, NF, Material, Fornecedor):", value=st.session_state["codigo_lido_camera"], placeholder="Ex: NF-1234 ou Bipe a Pistola aqui...")
-                with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera do Celular)"):
+                with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera)"):
                     foto_camera = st.camera_input("Aponte para o código Data Matrix")
                     if foto_camera and leitor_ativo:
-                        with st.spinner("Analisando Código..."):
-                            img = Image.open(foto_camera)
-                            codigos = decode_dm(img)
-                            if codigos:
-                                texto_bruto = codigos[0].data.decode('utf-8')
-                                if "240" in texto_bruto and len(texto_bruto) > 15:
-                                    material_limpo = texto_bruto.split("240")[-1].strip()
+                        with st.spinner("Analisando..."):
+                            try:
+                                img = Image.open(foto_camera)
+                                codigos = decode_dm(img)
+                                if codigos:
+                                    texto_bruto = codigos[0].data.decode('utf-8')
+                                    if "240" in texto_bruto and len(texto_bruto) > 15:
+                                        # Extrai o material (Padrão Etiqueta WEG 240)
+                                        mat_limpo = texto_bruto.split("240")[-1].strip()
+                                        st.success(f"✅ Lido: {mat_limpo}")
+                                    else:
+                                        st.warning("⚠️ Código lido, mas não parece o padrão SAP (240).")
                                 else:
-                                    material_limpo = texto_bruto
-                                st.session_state["codigo_lido_camera"] = material_limpo
-                                st.rerun() # Recarrega a tela já com o campo preenchido
-                            else:
-                                st.error("❌ Etiqueta não reconhecida.")
+                                    st.error("❌ Código não encontrado. Melhore o foco da imagem.")
+                            except Exception as e:
+                                st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
                     elif foto_camera and not leitor_ativo:
-                        st.error("⚠️ Bibliotecas 'pylibdmtx' / 'libdmtx0a' faltando no servidor.")
+                        # 🚀 AQUI ELE VAI CUSPIR O ERRO REAL NA TELA PRA GENTE!
+                        st.error(f"⚠️ Erro do Servidor no Leitor de Imagem: {erro_real}")
                 
-                filtro_urgencia = col_b2.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
+                busca_global = col_b2.text_input("🔎 Ou pesquise manualmente:", placeholder="Ex: NF-1234...")
+                filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
             if df_bruto.empty:
@@ -405,16 +410,11 @@ with aba_recebimento:
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 
                 if busca_global:
-                    if len(busca_global) > 15 and " " in busca_global:
-                        # Decodificador caso o cara use a Pistola Laser na caixa de texto
-                        mat_extraido = busca_global.split("240")[-1].strip() if "240" in busca_global else busca_global
-                        df_tela = df_tela[df_tela['material'] == mat_extraido]
-                    else:
-                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-                        df_tela = df_tela[mask]
+                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                    df_tela = df_tela[mask]
 
                 if df_tela.empty:
-                    st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
+                    st.warning("Nenhum material encontrado com os filtros atuais.")
                 else:
                     colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
@@ -471,7 +471,6 @@ with aba_recebimento:
                                     pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
                                     st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
                                     st.session_state["carrinho_expedicao"] = []
-                                    st.session_state["codigo_lido_camera"] = "" # Limpa a busca pra próxima
                                     st.rerun()
                         st.divider()
 
@@ -629,9 +628,9 @@ with aba_admin:
                     st.rerun()
 
         with tab_sistema:
-            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES E EM TRÂNSITO (Manter Histórico)"):
+            if st.button("🗑️ LIMPAR APENAS ITENS PENDENTES (Limpar Duplicidades de Teste)"):
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio IN ('Pendente', 'Em Trânsito Interno')"))
+                    conn.execute(text("DELETE FROM expedicao_completa WHERE status_envio = 'Pendente'"))
                     conn.commit()
                 st.session_state["carrinho_expedicao"] = []
                 st.rerun()
