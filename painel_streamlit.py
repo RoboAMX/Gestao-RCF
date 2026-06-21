@@ -5,9 +5,6 @@ import time
 from datetime import datetime
 import io
 
-# ==========================================
-# 📦 IMPORTAÇÕES E TRATAMENTO DE ERROS (O DETETIVE)
-# ==========================================
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -16,15 +13,12 @@ try:
 except ImportError:
     pass
 
-# TIRA A VENDA DO PYTHON! Vamos ver o erro real da câmera:
 try:
     from PIL import Image
     from pylibdmtx.pylibdmtx import decode as decode_dm
     leitor_ativo = True
-    erro_real = ""
-except Exception as e:
+except ImportError:
     leitor_ativo = False
-    erro_real = str(e)
 
 try:
     import agente_almoxweb 
@@ -58,7 +52,7 @@ st.markdown("""
 LOGO_WEG = "https://logospng.org/download/weg/logo-weg-2048.png"
 
 # ==========================================
-# 1. CONEXÃO E ATUALIZAÇÃO BLINDADA DO BANCO
+# 1. CONEXÃO E ATUALIZAÇÃO DO BANCO
 # ==========================================
 DATABASE_URL = st.secrets["banco_dados"]["url"]
 engine = create_engine(DATABASE_URL)
@@ -103,6 +97,7 @@ if "logado" not in st.session_state:
 
 if "carrinho_expedicao" not in st.session_state: st.session_state["carrinho_expedicao"] = []
 if "pdf_pronto" not in st.session_state: st.session_state["pdf_pronto"] = None
+if "busca_global" not in st.session_state: st.session_state["busca_global"] = "" # Memória da Caixa de Pesquisa!
 
 if not st.session_state["logado"]:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -225,7 +220,7 @@ if st.session_state["perfil_atual"] == "Admin":
                     st.rerun()
 
 # ==========================================
-# 4. FUNÇÕES GERAIS E PDF (DOCUMENTAÇÃO PADRÃO SAP)
+# 4. FUNÇÕES GERAIS E PDF
 # ==========================================
 def calcular_sla_pandas(df):
     if df.empty: 
@@ -275,7 +270,6 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     
     elementos.append(Paragraph(f"GUIA DE TRANSFERÊNCIA DE MATERIAIS - WEG", estilo_titulo))
     elementos.append(Spacer(1, 15))
-    
     data_hora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     info_html = f"<b>Documento (Lote):</b> {lote} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Emissão:</b> {data_hora}<br/><b>Origem:</b> {origem} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Destino:</b> {destino}<br/><b>Operador Físico:</b> {operador} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Usuário Emissor:</b> {st.session_state['usuario_atual'].upper()}"
     elementos.append(Paragraph(info_html, estilo_info))
@@ -309,7 +303,7 @@ config_colunas_gerais = {
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Separador", width="medium"),
     "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
-    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"),
+    "SLA_Interno": st.column_config.TextColumn("Relógio Almox.", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
     "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
@@ -320,7 +314,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
+# 5. TELA PRINCIPAL E DASHBOARD
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -377,27 +371,34 @@ with aba_recebimento:
                 with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera)"):
                     foto_camera = st.camera_input("Aponte para o código Data Matrix")
                     if foto_camera and leitor_ativo:
-                        with st.spinner("Analisando..."):
-                            try:
-                                img = Image.open(foto_camera)
-                                codigos = decode_dm(img)
-                                if codigos:
-                                    texto_bruto = codigos[0].data.decode('utf-8')
-                                    if "240" in texto_bruto and len(texto_bruto) > 15:
-                                        # Extrai o material (Padrão Etiqueta WEG 240)
-                                        mat_limpo = texto_bruto.split("240")[-1].strip()
-                                        st.success(f"✅ Lido: {mat_limpo}")
+                        if st.session_state.get("ultima_foto_processada") != foto_camera.getvalue():
+                            st.session_state["ultima_foto_processada"] = foto_camera.getvalue()
+                            with st.spinner("Analisando..."):
+                                try:
+                                    img = Image.open(foto_camera)
+                                    codigos = decode_dm(img)
+                                    if codigos:
+                                        texto_bruto = codigos[0].data.decode('utf-8')
+                                        mat_limpo = texto_bruto.split("240")[-1].strip() if "240" in texto_bruto and len(texto_bruto) > 15 else texto_bruto
+                                        
+                                        # 🚀 A MÁGICA DE SELECIONAR SOZINHO!
+                                        ids_achados = df_bruto[df_bruto['material'] == mat_limpo]['id'].tolist()
+                                        for idx in ids_achados:
+                                            if idx not in st.session_state["carrinho_expedicao"]:
+                                                st.session_state["carrinho_expedicao"].append(idx)
+                                                
+                                        # Preenche a caixa de pesquisa
+                                        st.session_state["busca_global"] = mat_limpo
+                                        st.rerun() 
                                     else:
-                                        st.warning("⚠️ Código lido, mas não parece o padrão SAP (240).")
-                                else:
-                                    st.error("❌ Código não encontrado. Melhore o foco da imagem.")
-                            except Exception as e:
-                                st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
+                                        st.error("❌ Etiqueta não reconhecida.")
+                                except Exception as e:
+                                    st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
                     elif foto_camera and not leitor_ativo:
-                        # 🚀 AQUI ELE VAI CUSPIR O ERRO REAL NA TELA PRA GENTE!
-                        st.error(f"⚠️ Erro do Servidor no Leitor de Imagem: {erro_real}")
+                        st.error("⚠️ Bibliotecas 'pylibdmtx' faltando no servidor Nuvem.")
                 
-                busca_global = col_b2.text_input("🔎 Ou pesquise manualmente:", placeholder="Ex: NF-1234...")
+                # A CAIXA DE PESQUISA AGORA ESTÁ LIGADA NA MEMÓRIA!
+                busca_global = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", key="busca_global", placeholder="Ex: NF-1234...")
                 filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -410,72 +411,81 @@ with aba_recebimento:
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 
                 if busca_global:
-                    mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
-                    df_tela = df_tela[mask]
+                    if len(busca_global) > 15 and " " in busca_global:
+                        mat_extraido = busca_global.split("240")[-1].strip() if "240" in busca_global else busca_global
+                        df_tela = df_tela[df_tela['material'] == mat_extraido]
+                    else:
+                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                        df_tela = df_tela[mask]
 
                 if df_tela.empty:
-                    st.warning("Nenhum material encontrado com os filtros atuais.")
+                    st.warning("Nenhum material encontrado.")
                 else:
                     colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
                     
-                    area_botoes_expedicao = st.container()
-                    df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
-                    colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
-                    
-                    df_editado = st.data_editor(
-                        df_tela, hide_index=True, use_container_width=True, height=400,
-                        disabled=colunas_bloqueadas, column_config=config_colunas_gerais
-                    )
-                    
-                    for index, row in df_editado.iterrows():
-                        id_linha = row['id']
-                        if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
-                        elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
-
-                    with area_botoes_expedicao:
-                        qtd_carrinho = len(st.session_state["carrinho_expedicao"])
-                        st.markdown("#### 👷 Fechamento do Lote e Geração de Guia")
-                        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+                    if st.session_state["perfil_atual"] == "Almoxarifado":
+                        st.info("👀 Modo Leitura.")
+                        st.dataframe(df_tela, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
+                    else:
+                        area_botoes_expedicao = st.container()
+                        df_tela.insert(0, "Selecionar", df_tela['id'].isin(st.session_state["carrinho_expedicao"]))
+                        colunas_bloqueadas = [col for col in df_tela.columns if col != "Selecionar"]
                         
-                        with col_btn1: st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
-                        with col_btn2:
-                            df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
-                            lista_op = ["-- Selecione o Operador --"] + df_operadores['nome'].tolist()
-                            operador_selecionado = st.selectbox("1. Quem separou?", lista_op)
-                        with col_btn3:
-                            df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
-                            lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
-                            deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
-                        with col_btn4:
-                            st.write("") 
-                            if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
-                                itens_selecionados_df = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
-                                itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == '🚚 JÁ DESPACHADO']
-                                
-                                if qtd_carrinho == 0: st.error("Carrinho vazio!")
-                                elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO!")
-                                elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
-                                elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
-                                else:
-                                    novo_lote = gerar_proximo_lote()
-                                    df_pdf = df_tela[df_tela['id'].isin(st.session_state["carrinho_expedicao"])]
-                                    agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        df_editado = st.data_editor(
+                            df_tela, hide_index=True, use_container_width=True, height=400,
+                            disabled=colunas_bloqueadas, column_config=config_colunas_gerais
+                        )
+                        
+                        for index, row in df_editado.iterrows():
+                            id_linha = row['id']
+                            if row['Selecionar'] and id_linha not in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].append(id_linha)
+                            elif not row['Selecionar'] and id_linha in st.session_state["carrinho_expedicao"]: st.session_state["carrinho_expedicao"].remove(id_linha)
+
+                        with area_botoes_expedicao:
+                            qtd_carrinho = len(st.session_state["carrinho_expedicao"])
+                            st.markdown("#### 👷 Fechamento do Lote e Geração de Guia")
+                            col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1.5, 1.5, 1.5])
+                            
+                            with col_btn1: st.info(f"🛒 **{qtd_carrinho}** itens selecionados.")
+                            with col_btn2:
+                                df_operadores = pd.read_sql_query("SELECT nome FROM operadores_fisicos ORDER BY nome", engine)
+                                lista_op = ["-- Selecione o Operador --"] + df_operadores['nome'].tolist()
+                                operador_selecionado = st.selectbox("1. Quem separou?", lista_op)
+                            with col_btn3:
+                                df_depositos = pd.read_sql_query("SELECT nome_deposito FROM depositos_destino ORDER BY nome_deposito", engine)
+                                lista_dep = ["-- Selecione o Destino --"] + df_depositos['nome_deposito'].tolist()
+                                deposito_selecionado = st.selectbox("2. Para onde vai?", lista_dep)
+                            with col_btn4:
+                                st.write("") 
+                                if st.button(f"🖨️ Despachar e Gerar PDF SAP", type="primary", use_container_width=True):
+                                    itens_selecionados_df = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
+                                    itens_ja_despachados = itens_selecionados_df[itens_selecionados_df['status_envio'] == 'Em Trânsito Interno']
                                     
-                                    with engine.connect() as conn:
-                                        for id_peca in st.session_state["carrinho_expedicao"]:
-                                            conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
-                                                         {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
-                                        conn.commit()
-                                    
-                                    pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
-                                    st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
-                                    st.session_state["carrinho_expedicao"] = []
-                                    st.rerun()
-                        st.divider()
+                                    if qtd_carrinho == 0: st.error("Carrinho vazio!")
+                                    elif not itens_ja_despachados.empty: st.error("⚠️ Você selecionou um item que JÁ FOI DESPACHADO!")
+                                    elif operador_selecionado == "-- Selecione o Operador --": st.error("Selecione o Operador!")
+                                    elif deposito_selecionado == "-- Selecione o Destino --": st.error("Selecione o Destino!")
+                                    else:
+                                        novo_lote = gerar_proximo_lote()
+                                        df_pdf = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
+                                        agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                        
+                                        with engine.connect() as conn:
+                                            for id_peca in st.session_state["carrinho_expedicao"]:
+                                                conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
+                                                             {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
+                                            conn.commit()
+                                        
+                                        pdf_bytes = gerar_pdf_remessa_sap(novo_lote, "Doca de Recebimento", deposito_selecionado, operador_selecionado, df_pdf)
+                                        st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": pdf_bytes}
+                                        st.session_state["carrinho_expedicao"] = []
+                                        st.session_state["busca_global"] = "" # Limpa a caixa depois de despachar!
+                                        st.rerun()
+                            st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR 
+# ABA 2: ACONDICIONAR (E OUTRAS MANTIDAS IGUAIS)
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
@@ -537,9 +547,6 @@ with aba_almoxarifado:
                             st.rerun()
                 st.write("") 
 
-# ------------------------------------------
-# ABA 3: HISTÓRICO GERAL
-# ------------------------------------------
 with aba_historico:
     st.markdown("### 💾 Base de Dados Histórica")
     query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
@@ -548,9 +555,6 @@ with aba_historico:
     if df_hist.empty: st.info("Nenhum material movimentado.")
     else: st.dataframe(df_hist, hide_index=True, use_container_width=True, height=400, column_config=config_colunas_gerais)
 
-# ------------------------------------------
-# ABA 4: ADMINISTRAÇÃO 
-# ------------------------------------------
 with aba_admin:
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
