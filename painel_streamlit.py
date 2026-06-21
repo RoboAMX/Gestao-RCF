@@ -27,25 +27,56 @@ except ModuleNotFoundError:
     robo_disponivel = False
 
 # ==========================================
-# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS
+# 🎨 CONFIGURAÇÕES DE PÁGINA E CSS (DESIGN ADAPTÁVEL LIGHT/DARK)
 # ==========================================
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-        .stApp { background-color: #E6F0F9; } 
-        h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
-        div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
+        
+        /* Fundo principal da página puxando a variável inteligente do Streamlit */
+        .stApp { background-color: var(--background-color); } 
+        
+        /* Títulos e Fontes (Azul WEG no Light, Azul Claro no Dark) */
+        h1, h2, h3, h4, h5 { font-family: 'Segoe UI', sans-serif; }
+        
+        /* Botões Primários WEG */
+        div.stButton > button:first-child { 
+            background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; 
+        }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); }
+        
+        /* CAIXAS DOS CARDS (Filtros, Login, etc) - Adaptáveis ao Tema Escuro */
+        .css-1r6slb0, .css-1n76uvr { 
+            background-color: var(--secondary-background-color); /* Fica branco no Light e cinza chumbo no Dark */
+            color: var(--text-color);
+            padding: 20px; border-radius: 8px; 
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.1); 
+            border-top: 4px solid #00579D; 
+            margin-bottom: 10px;
+        }
+        
+        /* DASHBOARD - CARTÕES DE KPI (SLA) */
+        .kpi-card { 
+            background-color: var(--secondary-background-color); 
+            padding: 20px; border-radius: 8px; text-align: center; 
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.1); 
+        }
         .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
-        .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
-        .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
-        .kpi-amarelo .kpi-valor { color: #f57c00; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
-        .kpi-roxo .kpi-valor { color: #9c27b0; }
-        .kpi-vermelho { border-bottom: 4px solid #d32f2f; } .kpi-roxo { border-bottom: 4px solid #9c27b0; }
-        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
+        .kpi-titulo { font-size: 14px; color: var(--text-color); font-weight: bold; text-transform: uppercase; }
+        
+        /* Cores Específicas dos Relógios KPI */
+        .kpi-azul .kpi-valor { color: #0088CC; } /* Azul mais vibrante para aparecer bem no preto */
+        .kpi-verde .kpi-valor { color: #4CAF50; }
+        .kpi-amarelo .kpi-valor { color: #FFB300; } 
+        .kpi-vermelho .kpi-valor { color: #F44336; }
+        .kpi-roxo .kpi-valor { color: #AB47BC; }
+        .kpi-vermelho { border-bottom: 4px solid #F44336; } 
+        .kpi-roxo { border-bottom: 4px solid #AB47BC; }
+        
+        /* Arruma as abas no celular para não sumirem */
+        button[data-baseweb="tab"] { font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -97,7 +128,7 @@ if "logado" not in st.session_state:
 
 if "carrinho_expedicao" not in st.session_state: st.session_state["carrinho_expedicao"] = []
 if "pdf_pronto" not in st.session_state: st.session_state["pdf_pronto"] = None
-if "busca_global" not in st.session_state: st.session_state["busca_global"] = "" # Memória da Caixa de Pesquisa!
+if "busca_global" not in st.session_state: st.session_state["busca_global"] = "" 
 
 if not st.session_state["logado"]:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -303,7 +334,7 @@ config_colunas_gerais = {
     "deposito_destino": st.column_config.TextColumn("Destino", width="medium"),
     "operador_separacao": st.column_config.TextColumn("Separador", width="medium"),
     "SLA": st.column_config.TextColumn("Status Doca", width="medium"),
-    "SLA_Interno": st.column_config.TextColumn("Relógio Almox.", width="medium"),
+    "SLA_Interno": st.column_config.TextColumn("Relógio Almox. (24h)", width="medium"),
     "material": st.column_config.TextColumn("Material", width="small"),
     "descricao": st.column_config.TextColumn("Descrição", width="large"), 
     "estoque": st.column_config.NumberColumn("Qtd", width="small"),              
@@ -314,7 +345,7 @@ config_colunas_gerais = {
 }
 
 # ==========================================
-# 5. TELA PRINCIPAL E DASHBOARD
+# 5. TELA PRINCIPAL (DASHBOARD E ABAS)
 # ==========================================
 col_topo1, col_topo2 = st.columns([3, 1])
 with col_topo1: st.markdown("<h1>📊 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
@@ -362,7 +393,7 @@ with aba_recebimento:
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
-            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Sua função é receber as cargas internas. Vá para a aba 2.")
+            st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**. Vá para a aba 2.")
         else:
             with st.container():
                 st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
@@ -381,13 +412,11 @@ with aba_recebimento:
                                         texto_bruto = codigos[0].data.decode('utf-8')
                                         mat_limpo = texto_bruto.split("240")[-1].strip() if "240" in texto_bruto and len(texto_bruto) > 15 else texto_bruto
                                         
-                                        # 🚀 A MÁGICA DE SELECIONAR SOZINHO!
                                         ids_achados = df_bruto[df_bruto['material'] == mat_limpo]['id'].tolist()
                                         for idx in ids_achados:
                                             if idx not in st.session_state["carrinho_expedicao"]:
                                                 st.session_state["carrinho_expedicao"].append(idx)
                                                 
-                                        # Preenche a caixa de pesquisa
                                         st.session_state["busca_global"] = mat_limpo
                                         st.rerun() 
                                     else:
@@ -395,10 +424,10 @@ with aba_recebimento:
                                 except Exception as e:
                                     st.error(f"⚠️ Erro ao decodificar a imagem: {e}")
                     elif foto_camera and not leitor_ativo:
-                        st.error("⚠️ Bibliotecas 'pylibdmtx' faltando no servidor Nuvem.")
+                        st.error("⚠️ As bibliotecas de leitura ('pylibdmtx') não foram encontradas no servidor.")
                 
-                # A CAIXA DE PESQUISA AGORA ESTÁ LIGADA NA MEMÓRIA!
-                busca_global = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", key="busca_global", placeholder="Ex: NF-1234...")
+                # BUSCA MANUAL AGORA FICA GUARDADA NA MEMÓRIA!
+                st.session_state["busca_global"] = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", value=st.session_state["busca_global"], placeholder="Ex: NF-1234...")
                 filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -410,16 +439,17 @@ with aba_recebimento:
                 
                 if filtro_urgencia != "Mostrar Todos": df_tela = df_tela[df_tela['SLA'] == filtro_urgencia]
                 
-                if busca_global:
-                    if len(busca_global) > 15 and " " in busca_global:
-                        mat_extraido = busca_global.split("240")[-1].strip() if "240" in busca_global else busca_global
+                if st.session_state["busca_global"]:
+                    busca_txt = st.session_state["busca_global"]
+                    if len(busca_txt) > 15 and " " in busca_txt:
+                        mat_extraido = busca_txt.split("240")[-1].strip() if "240" in busca_txt else busca_txt
                         df_tela = df_tela[df_tela['material'] == mat_extraido]
                     else:
-                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_global, case=False, na=False)).any(axis=1)
+                        mask = df_tela.astype(str).apply(lambda x: x.str.contains(busca_txt, case=False, na=False)).any(axis=1)
                         df_tela = df_tela[mask]
 
                 if df_tela.empty:
-                    st.warning("Nenhum material encontrado.")
+                    st.warning("Nenhum material encontrado com os filtros/códigos atuais.")
                 else:
                     colunas_visiveis = ['id', 'status_envio', 'SLA', 'material', 'descricao', 'estoque', 'posicao_dep', 'nfe', 'fornecedor']
                     df_tela = df_tela[colunas_visiveis]
@@ -485,11 +515,11 @@ with aba_recebimento:
                             st.divider()
 
 # ------------------------------------------
-# ABA 2: ACONDICIONAR (E OUTRAS MANTIDAS IGUAIS)
+# ABA 2, 3 E 4
 # ------------------------------------------
 with aba_almoxarifado:
     if st.session_state["perfil_atual"] == "Recebimento":
-        st.error("⛔ Acesso Restrito: O seu perfil é da **Doca**. Você não pode acondicionar materiais.")
+        st.error("⛔ Acesso Restrito.")
     else:
         query_rec = "SELECT id, lote_envio, operador_separacao, deposito_destino, data_hora_despacho, material, descricao, estoque, posicao_dep, nfe, fornecedor, status_envio FROM expedicao_completa WHERE status_envio = 'Em Trânsito Interno'"
         df_rec = pd.read_sql_query(query_rec, engine)
