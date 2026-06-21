@@ -1,1 +1,1 @@
-libdmtx0a
+libdmtx0t64
