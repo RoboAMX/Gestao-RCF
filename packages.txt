@@ -1,1 +1,2 @@
 libdmtx0t64
+libdmtx-dev
