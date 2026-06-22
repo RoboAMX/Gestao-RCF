@@ -31,57 +31,24 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
-# Inicia fechado para a tela brilhar, mas o botão MENU estará lá!
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-        /* Correção: Não escondemos mais o header inteiro, apenas o menu da direita e o rodapé */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;} 
-        header {background-color: transparent !important;} /* Fundo transparente pro cabeçalho */
-        [data-testid="stToolbar"] {visibility: hidden;} /* Esconde as opções de dev no canto direito */
+        header {background-color: transparent !important;} 
+        [data-testid="stToolbar"] {visibility: hidden;} 
         
         .stApp { background-color: #E6F0F9; } 
         h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         
-        /* Botões padrão do sistema */
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
         
-        /* KPIs da barra lateral */
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         
-        /* 🚀 BOTÃO 'MENU' SUPER VISÍVEL E ESTILIZADO */
-        button[data-testid="collapsedControl"] {
-            background-color: #00579D !important;
-            color: white !important;
-            border-radius: 0px 8px 8px 0px !important;
-            padding: 5px 15px 5px 10px !important;
-            border: 1px solid #003A6B !important;
-            border-left: none !important;
-            box-shadow: 3px 3px 10px rgba(0,0,0,0.2) !important;
-            transition: all 0.3s ease;
-            margin-top: 10px;
-        }
-        button[data-testid="collapsedControl"] svg {
-            fill: white !important;
-            color: white !important;
-        }
-        button[data-testid="collapsedControl"]::after {
-            content: " MENU";
-            font-weight: bold;
-            font-size: 14px;
-            color: white;
-            margin-left: 5px;
-        }
-        button[data-testid="collapsedControl"]:hover {
-            background-color: #003A6B !important;
-            padding-left: 15px !important; 
-        }
-
-        /* 🚀 SEÇÕES COM BORDAS TRANSPARENTES */
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border: 1px solid rgba(0, 87, 157, 0.15) !important; 
             background-color: rgba(255, 255, 255, 0.4) !important; 
@@ -91,6 +58,10 @@ st.markdown("""
         }
 
         div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
+        
+        /* Ocultando a setinha feia padrão para forçarmos o uso do nosso botão gigante central */
+        button[data-testid="collapsedControl"] { opacity: 0.1; }
+        button[data-testid="collapsedControl"]:hover { opacity: 1; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -502,10 +473,16 @@ if menu_selecionado == "0. GESTÃO À VISTA":
                     <h4 style="margin:0; color: #ffc107;">{data_antigo_r}</h4>
                 </div>
             """, unsafe_allow_html=True)
-            st.write("")
-            st.write("")
-            st.write("")
-            st.write("")
+            
+            # 🚀 AQUI ESTÁ A MÁGICA: O BOTÃO GIGANTE DE MENU BEM NO MEIO DA TELA!
+            st.markdown("""
+                <div style="display: flex; justify-content: center; margin-top: 40px; margin-bottom: 10px;">
+                    <button onclick="window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']').click()" 
+                    style="background-color: #00579D; color: white; border: none; padding: 12px 40px; font-size: 20px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0px 4px 10px rgba(0,0,0,0.3); transition: 0.3s;">
+                        ☰ ABRIR MENU
+                    </button>
+                </div>
+            """, unsafe_allow_html=True)
 
     with col3:
         with st.container(border=True):
