@@ -6,3 +6,4 @@ reportlab
 Pillow
 pylibdmtx
 setuptools
+plotly
