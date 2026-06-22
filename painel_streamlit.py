@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components  # <-- NOVA IMPORTAÇÃO AQUI
 import pandas as pd
 from sqlalchemy import create_engine, text
 import time
@@ -60,8 +59,17 @@ st.markdown("""
 
         div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
         
-        /* Ocultando a setinha feia padrão */
-        button[data-testid="collapsedControl"] { opacity: 0.0; pointer-events: none; }
+        /* O Efeito de Hover para o nosso botão gigante (Feito via CSS puro) */
+        .btn-gigante {
+            background-color: #00579D; color: white; padding: 12px 40px; 
+            font-size: 18px; font-weight: bold; border-radius: 8px; 
+            text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.3); 
+            transition: all 0.3s;
+        }
+        .btn-gigante:hover {
+            background-color: #003A6B;
+            transform: scale(1.05);
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -474,20 +482,19 @@ if menu_selecionado == "0. GESTÃO À VISTA":
                 </div>
             """, unsafe_allow_html=True)
             
-            # 🚀 SOLUÇÃO OFICIAL: Componente HTML isolado que clica no botão oculto do Streamlit.
-            components.html("""
-                <div style="display: flex; justify-content: center; margin-top: 35px;">
-                    <button onclick="window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']').click()" 
-                    style="background-color: #00579D; color: white; border: none; padding: 12px 40px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0px 4px 10px rgba(0,0,0,0.3); font-family: sans-serif; transition: background 0.3s;">
-                        ☰ ABRIR MENU
-                    </button>
+            # 🚀 SOLUÇÃO MESTRE: Link <a> que ativa JavaScript contornando os bloqueios
+            st.markdown("""
+                <div style="display: flex; justify-content: center; margin-top: 40px; margin-bottom: 10px;">
+                    <a href="javascript:(function(){
+                        var btn = window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']');
+                        if(btn) { btn.click(); }
+                    })();" style="text-decoration: none;">
+                        <div class="btn-gigante">
+                            ☰ ABRIR MENU
+                        </div>
+                    </a>
                 </div>
-                <script>
-                    const btn = document.querySelector('button');
-                    btn.addEventListener('mouseover', () => btn.style.backgroundColor = '#003A6B');
-                    btn.addEventListener('mouseout', () => btn.style.backgroundColor = '#00579D');
-                </script>
-            """, height=100)
+            """, unsafe_allow_html=True)
 
     with col3:
         with st.container(border=True):
