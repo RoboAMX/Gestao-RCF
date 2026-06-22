@@ -31,18 +31,60 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
-st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
         .stApp { background-color: #E6F0F9; } 
         h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
+        
+        /* Botões padrão do sistema */
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
+        
+        /* KPIs da barra lateral */
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
-        .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
+        
+        /* 🚀 NOVO: BOTÃO 'MENU' SUPER VISÍVEL (Sobrescrevendo a setinha do Streamlit) */
+        button[data-testid="collapsedControl"] {
+            background-color: #00579D !important;
+            color: white !important;
+            border-radius: 0px 8px 8px 0px !important;
+            padding: 5px 15px 5px 10px !important;
+            opacity: 1 !important; /* Sempre visível */
+            border: 1px solid #003A6B !important;
+            border-left: none !important;
+            box-shadow: 3px 3px 10px rgba(0,0,0,0.2) !important;
+            transition: all 0.3s ease;
+        }
+        button[data-testid="collapsedControl"] svg {
+            fill: white !important;
+            color: white !important;
+        }
+        /* Adiciona a palavra MENU ao lado do ícone */
+        button[data-testid="collapsedControl"]::after {
+            content: " MENU";
+            font-weight: bold;
+            font-size: 14px;
+            color: white;
+            margin-left: 5px;
+        }
+        button[data-testid="collapsedControl"]:hover {
+            background-color: #003A6B !important;
+            padding-left: 15px !important; /* Animação puxando pra direita */
+        }
+
+        /* 🚀 NOVO: SEÇÕES COM BORDAS TRANSPARENTES (Containers do Streamlit) */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border: 1px solid rgba(0, 87, 157, 0.15) !important; /* Borda azul bem suave */
+            background-color: rgba(255, 255, 255, 0.4) !important; /* Fundo branco translúcido */
+            border-radius: 12px !important;
+            padding: 5px !important;
+            box-shadow: 2px 2px 10px rgba(0,87,157,0.03) !important;
+        }
+
         div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -145,24 +187,23 @@ if st.session_state["precisa_mudar_senha"]:
     col_t1, col_t2, col_t3 = st.columns([1, 2, 1])
     with col_t2:
         st.warning("⚠️ **Ação Obrigatória:** Este é o seu primeiro acesso. Por favor, crie uma nova senha.")
-        st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
-        st.markdown(f"### Olá, {st.session_state['usuario_atual'].upper()}")
-        with st.form("form_mudar_senha"):
-            nova_senha = st.text_input("Digite a Nova Senha:", type="password")
-            confirma_senha = st.text_input("Confirme a Nova Senha:", type="password")
-            if st.form_submit_button("Atualizar Senha e Entrar"):
-                if nova_senha == "" or confirma_senha == "": st.error("As senhas não podem ser vazias.")
-                elif nova_senha == "1234": st.error("Sua nova senha não pode ser 1234. Escolha outra mais segura.")
-                elif nova_senha != confirma_senha: st.error("As senhas não coincidem.")
-                else:
-                    with engine.connect() as conn:
-                        conn.execute(text("UPDATE usuarios SET senha = :s WHERE usuario = :u"), {"s": nova_senha, "u": st.session_state["usuario_atual"]})
-                        conn.commit()
-                    st.session_state["precisa_mudar_senha"] = False
-                    st.success("✅ Senha atualizada com sucesso!")
-                    time.sleep(1.5)
-                    st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(f"### Olá, {st.session_state['usuario_atual'].upper()}")
+            with st.form("form_mudar_senha"):
+                nova_senha = st.text_input("Digite a Nova Senha:", type="password")
+                confirma_senha = st.text_input("Confirme a Nova Senha:", type="password")
+                if st.form_submit_button("Atualizar Senha e Entrar"):
+                    if nova_senha == "" or confirma_senha == "": st.error("As senhas não podem ser vazias.")
+                    elif nova_senha == "1234": st.error("Sua nova senha não pode ser 1234. Escolha outra mais segura.")
+                    elif nova_senha != confirma_senha: st.error("As senhas não coincidem.")
+                    else:
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE usuarios SET senha = :s WHERE usuario = :u"), {"s": nova_senha, "u": st.session_state["usuario_atual"]})
+                            conn.commit()
+                        st.session_state["precisa_mudar_senha"] = False
+                        st.success("✅ Senha atualizada com sucesso!")
+                        time.sleep(1.5)
+                        st.rerun()
     st.stop()
 
 # ==========================================
@@ -247,7 +288,6 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer.seek(0)
     return buffer.getvalue()
 
-# FUNÇÃO CORRIGIDA: Sem anotação sobreposta, fundo transparente.
 def criar_manometro_digital(total, maximo, cor_ponteiro):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number", 
@@ -264,18 +304,16 @@ def criar_manometro_digital(total, maximo, cor_ponteiro):
             'threshold': {'line': {'color': cor_ponteiro, 'width': 6}, 'thickness': 0.8, 'value': total}
         }
     ))
-    # paper_bgcolor='rgba(0,0,0,0)' deixa o fundo transparente sem as caixas brancas
     fig.update_layout(height=160, margin=dict(l=20, r=20, t=10, b=0), paper_bgcolor='rgba(0,0,0,0)', font={'color': '#333'})
     return fig
 
-# FUNÇÃO PIZZA: Fundo transparente.
 def criar_grafico_pizza(atrasados, no_prazo):
     if atrasados == 0 and no_prazo == 0:
         labels, values, colors = ["Vazio"], [1], ["#e0e0e0"]
     else:
         labels = ['Atrasados', 'No Prazo']
         values = [atrasados, no_prazo]
-        colors = ['#dc3545', '#28a745'] # Vermelho e Verde
+        colors = ['#dc3545', '#28a745'] 
 
     fig = go.Figure(data=[go.Pie(
         labels=labels, values=values, hole=0.4, 
@@ -381,7 +419,6 @@ menu_selecionado = st.sidebar.selectbox(
     ["0. GESTÃO À VISTA", "1. ENVIAR (Recebimento Físico)", "2. ACONDICIONAR (Almoxarifado)", "3. HISTÓRICO GERAL", "4. MURAL DE OCORRÊNCIAS", "5. ADMINISTRAÇÃO"]
 )
 
-# Renderiza os KPIs Ocultáveis APENAS se estiver no menu Dashboard
 if menu_selecionado == "0. GESTÃO À VISTA":
     st.markdown("<style>.block-container { padding-top: 1rem; padding-bottom: 0rem; max-height: 100vh; overflow-y: hidden; }</style>", unsafe_allow_html=True)
     
@@ -439,86 +476,77 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     col1, col2, col3 = st.columns([1.2, 1, 1.2])
     
     with col1:
-        st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Laboratório Qualidade</h4>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total em Inspeção</p>", unsafe_allow_html=True)
-        
-        # Manômetro Total (Sem o texto encavalado)
-        st.plotly_chart(criar_manometro_digital(cq_total, 200, "#007bff"), use_container_width=True)
-        
-        # Texto de Atrasados fora do gráfico (NUNCA vai encavalar)
-        st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {cq_atrasados}</h5>", unsafe_allow_html=True)
-        
-        # Gráfico de Pizza (%)
-        st.plotly_chart(criar_grafico_pizza(cq_atrasados, cq_no_prazo), use_container_width=True)
-        
-        st.markdown("""<div class="alert-card" style="background-color: #f8d7da; border-left: 5px solid #dc3545; color: #721c24;"><strong>Regra:</strong> Atrasado > <strong>3 dias</strong>.</div>""", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Laboratório Qualidade</h4>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total em Inspeção</p>", unsafe_allow_html=True)
+            st.plotly_chart(criar_manometro_digital(cq_total, 200, "#007bff"), use_container_width=True)
+            st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {cq_atrasados}</h5>", unsafe_allow_html=True)
+            st.plotly_chart(criar_grafico_pizza(cq_atrasados, cq_no_prazo), use_container_width=True)
+            st.markdown("""<div class="alert-card" style="background-color: #f8d7da; border-left: 5px solid #dc3545; color: #721c24;"><strong>Regra:</strong> Atrasado > <strong>3 dias</strong>.</div>""", unsafe_allow_html=True)
 
     with col2:
-        st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 25px;'>Relógio de Permanência</h4>", unsafe_allow_html=True)
-        st.markdown(f"""
-            <div style="text-align: center; margin-top: 20px;">
-                <p style="margin:0; font-weight: bold; color: gray;">Material mais Antigo na Qualidade</p>
-                <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_cq} dias</p>
-                <h4 style="margin:0; color: #dc3545;">{data_antigo_cq}</h4><br><br>
-                <p style="margin:0; font-weight: bold; color: gray;">Material mais Antigo no Recebimento</p>
-                <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_r} dias</p>
-                <h4 style="margin:0; color: #ffc107;">{data_antigo_r}</h4>
-            </div>
-        """, unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 25px;'>Relógio de Permanência</h4>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div style="text-align: center; margin-top: 20px;">
+                    <p style="margin:0; font-weight: bold; color: gray;">Mais Antigo na Qualidade</p>
+                    <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_cq} dias</p>
+                    <h4 style="margin:0; color: #dc3545;">{data_antigo_cq}</h4><br><br>
+                    <p style="margin:0; font-weight: bold; color: gray;">Mais Antigo no Recebimento</p>
+                    <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_r} dias</p>
+                    <h4 style="margin:0; color: #ffc107;">{data_antigo_r}</h4>
+                </div>
+            """, unsafe_allow_html=True)
+            st.write("")
+            st.write("")
+            st.write("")
+            st.write("")
 
     with col3:
-        st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Doca (Recebimento)</h4>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total Livre</p>", unsafe_allow_html=True)
-        
-        # Manômetro Total (Sem o texto encavalado)
-        st.plotly_chart(criar_manometro_digital(doca_total, 200, "#007bff"), use_container_width=True)
-        
-        # Texto de Atrasados fora do gráfico (NUNCA vai encavalar)
-        st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {doca_atrasados}</h5>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Doca (Recebimento)</h4>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total Livre</p>", unsafe_allow_html=True)
+            st.plotly_chart(criar_manometro_digital(doca_total, 200, "#007bff"), use_container_width=True)
+            st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {doca_atrasados}</h5>", unsafe_allow_html=True)
+            st.plotly_chart(criar_grafico_pizza(doca_atrasados, doca_no_prazo), use_container_width=True)
+            st.markdown("""<div class="alert-card" style="background-color: #fff3cd; border-left: 5px solid #ffc107; color: #856404;"><strong>Regra:</strong> Atrasado > <strong>7 dias</strong>.</div>""", unsafe_allow_html=True)
 
-        # Gráfico de Pizza (%)
-        st.plotly_chart(criar_grafico_pizza(doca_atrasados, doca_no_prazo), use_container_width=True)
-        
-        st.markdown("""<div class="alert-card" style="background-color: #fff3cd; border-left: 5px solid #ffc107; color: #856404;"><strong>Regra:</strong> Atrasado > <strong>7 dias</strong>.</div>""", unsafe_allow_html=True)
-
-    st.markdown("---")
     
     col_tabela1, col_tabela2 = st.columns(2)
     top_q = df_qualidade[['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor']].sort_values(by='dias_parado', ascending=False).head(15) if not df_qualidade.empty else pd.DataFrame(columns=['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor'])
     top_r = df_recebimento[['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor']].sort_values(by='dias_parado', ascending=False).head(15) if not df_recebimento.empty else pd.DataFrame(columns=['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor'])
 
     with col_tabela1:
-        st.markdown("<h5 style='color: #dc3545; text-align: center; margin:0;'>🔴 Itens Esquecidos (Laboratório Qualidade)</h5>", unsafe_allow_html=True)
-        # Tabela levemente menor para garantir que caiba com o gráfico de pizza acima dela
-        st.dataframe(top_q, use_container_width=True, hide_index=True, height=220)
+        with st.container(border=True):
+            st.markdown("<h5 style='color: #dc3545; text-align: center; margin:0;'>🔴 Itens Esquecidos (Laboratório Qualidade)</h5>", unsafe_allow_html=True)
+            st.dataframe(top_q, use_container_width=True, hide_index=True, height=220)
         
     with col_tabela2:
-        st.markdown("<h5 style='color: #ffc107; text-align: center; margin:0;'>🟡 Itens Esquecidos (Recebimento Livre)</h5>", unsafe_allow_html=True)
-        st.dataframe(top_r, use_container_width=True, hide_index=True, height=220)
+        with st.container(border=True):
+            st.markdown("<h5 style='color: #ffc107; text-align: center; margin:0;'>🟡 Itens Esquecidos (Recebimento Livre)</h5>", unsafe_allow_html=True)
+            st.dataframe(top_r, use_container_width=True, hide_index=True, height=220)
 
 
 elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
     st.markdown("<h1>📋 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
     if st.session_state["pdf_pronto"] is not None:
-        st.markdown("<div class='css-1r6slb0' style='text-align:center;'>", unsafe_allow_html=True)
-        st.success(f"🎉 Carga enviada com sucesso! (Remessa: {st.session_state['pdf_pronto']['lote']})")
-        st.download_button(
-            label="🖨️ Baixar Guia de Remessa (PDF)",
-            data=st.session_state["pdf_pronto"]["bytes"], file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
-            mime="application/pdf", type="primary", use_container_width=True
-        )
-        st.divider()
-        if st.button("🔄 Voltar para a Tela de Envio", use_container_width=True):
-            st.session_state["pdf_pronto"] = None
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.success(f"🎉 Carga enviada com sucesso! (Remessa: {st.session_state['pdf_pronto']['lote']})")
+            st.download_button(
+                label="🖨️ Baixar Guia de Remessa (PDF)",
+                data=st.session_state["pdf_pronto"]["bytes"], file_name=f"Guia_Transferencia_{st.session_state['pdf_pronto']['lote']}.pdf",
+                mime="application/pdf", type="primary", use_container_width=True
+            )
+            st.divider()
+            if st.button("🔄 Voltar para a Tela de Envio", use_container_width=True):
+                st.session_state["pdf_pronto"] = None
+                st.rerun()
         
     else:
         if st.session_state["perfil_atual"] == "Almoxarifado":
             st.error("⛔ Acesso Restrito: O seu perfil é de **Almoxarifado**.")
         else:
-            with st.container():
-                st.markdown("<div class='css-1r6slb0'>", unsafe_allow_html=True)
+            with st.container(border=True):
                 col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
                 
                 with col_b1.expander("📸 Abrir Leitor de Etiqueta (Câmera)"):
@@ -544,7 +572,6 @@ elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
                 
                 st.session_state["busca_global"] = col_b2.text_input("🔎 Pesquisa Manual (Laser/Teclado):", value=st.session_state["busca_global"], placeholder="Ex: NF-1234...")
                 filtro_urgencia = col_b3.selectbox("Focar Operação:", ["Mostrar Todos", "🔴 URGENTE (>7d)", "🟡 ATENÇÃO (>3d)", "🟣 BLOQ. QUALIDADE"])
-                st.markdown("</div>", unsafe_allow_html=True)
 
             if df_bruto.empty:
                 st.success("Tudo limpo! Nenhuma carga no Recebimento para enviar.")
