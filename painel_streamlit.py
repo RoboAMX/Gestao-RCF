@@ -31,11 +31,17 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
+# Inicia fechado para a tela brilhar, mas o botão MENU estará lá!
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-        #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
+        /* Correção: Não escondemos mais o header inteiro, apenas o menu da direita e o rodapé */
+        #MainMenu {visibility: hidden;} 
+        footer {visibility: hidden;} 
+        header {background-color: transparent !important;} /* Fundo transparente pro cabeçalho */
+        [data-testid="stToolbar"] {visibility: hidden;} /* Esconde as opções de dev no canto direito */
+        
         .stApp { background-color: #E6F0F9; } 
         h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         
@@ -47,23 +53,22 @@ st.markdown("""
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         
-        /* 🚀 NOVO: BOTÃO 'MENU' SUPER VISÍVEL (Sobrescrevendo a setinha do Streamlit) */
+        /* 🚀 BOTÃO 'MENU' SUPER VISÍVEL E ESTILIZADO */
         button[data-testid="collapsedControl"] {
             background-color: #00579D !important;
             color: white !important;
             border-radius: 0px 8px 8px 0px !important;
             padding: 5px 15px 5px 10px !important;
-            opacity: 1 !important; /* Sempre visível */
             border: 1px solid #003A6B !important;
             border-left: none !important;
             box-shadow: 3px 3px 10px rgba(0,0,0,0.2) !important;
             transition: all 0.3s ease;
+            margin-top: 10px;
         }
         button[data-testid="collapsedControl"] svg {
             fill: white !important;
             color: white !important;
         }
-        /* Adiciona a palavra MENU ao lado do ícone */
         button[data-testid="collapsedControl"]::after {
             content: " MENU";
             font-weight: bold;
@@ -73,13 +78,13 @@ st.markdown("""
         }
         button[data-testid="collapsedControl"]:hover {
             background-color: #003A6B !important;
-            padding-left: 15px !important; /* Animação puxando pra direita */
+            padding-left: 15px !important; 
         }
 
-        /* 🚀 NOVO: SEÇÕES COM BORDAS TRANSPARENTES (Containers do Streamlit) */
+        /* 🚀 SEÇÕES COM BORDAS TRANSPARENTES */
         div[data-testid="stVerticalBlockBorderWrapper"] {
-            border: 1px solid rgba(0, 87, 157, 0.15) !important; /* Borda azul bem suave */
-            background-color: rgba(255, 255, 255, 0.4) !important; /* Fundo branco translúcido */
+            border: 1px solid rgba(0, 87, 157, 0.15) !important; 
+            background-color: rgba(255, 255, 255, 0.4) !important; 
             border-radius: 12px !important;
             padding: 5px !important;
             box-shadow: 2px 2px 10px rgba(0,87,157,0.03) !important;
