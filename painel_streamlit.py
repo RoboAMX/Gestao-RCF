@@ -31,7 +31,6 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
-# Menu lateral já começa aberto!
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -248,15 +247,15 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer.seek(0)
     return buffer.getvalue()
 
-# NOVA FUNÇÃO DE GRÁFICO: Manômetro com anotação dupla
-def criar_manometro_digital(total, atrasados, maximo, cor_ponteiro):
+# FUNÇÃO CORRIGIDA: Sem anotação sobreposta, fundo transparente.
+def criar_manometro_digital(total, maximo, cor_ponteiro):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number", 
         value = total,
-        number = {'font': {'size': 40, 'color': cor_ponteiro}},
+        number = {'font': {'size': 45, 'color': cor_ponteiro}},
         gauge = {
             'axis': {'range': [0, maximo if maximo > 0 else 1], 'tickwidth': 1, 'tickcolor': "darkgray"},
-            'bar': {'color': "rgba(0,0,0,0)"}, 'bgcolor': "#f0f2f6", 'borderwidth': 2, 'bordercolor': "#d1d5db",
+            'bar': {'color': "rgba(0,0,0,0)"}, 'bgcolor': "rgba(0,0,0,0)", 'borderwidth': 2, 'bordercolor': "#d1d5db",
             'steps': [
                 {'range': [0, maximo*0.33], 'color': "#28a745"}, 
                 {'range': [maximo*0.33, maximo*0.66], 'color': "#ffc107"}, 
@@ -265,16 +264,11 @@ def criar_manometro_digital(total, atrasados, maximo, cor_ponteiro):
             'threshold': {'line': {'color': cor_ponteiro, 'width': 6}, 'thickness': 0.8, 'value': total}
         }
     ))
-    # ADICIONA A SEGUNDA LINHA DE TEXTO (Atrasados) EMBAIXO DO TOTAL
-    fig.add_annotation(
-        text=f"Atrasados: <b>{atrasados}</b>",
-        x=0.5, y=0.1, showarrow=False,
-        font=dict(size=18, color="#dc3545") # Vermelho chamativo
-    )
-    fig.update_layout(height=160, margin=dict(l=20, r=20, t=10, b=0))
+    # paper_bgcolor='rgba(0,0,0,0)' deixa o fundo transparente sem as caixas brancas
+    fig.update_layout(height=160, margin=dict(l=20, r=20, t=10, b=0), paper_bgcolor='rgba(0,0,0,0)', font={'color': '#333'})
     return fig
 
-# NOVA FUNÇÃO DE GRÁFICO: Pizza (Donut) de %
+# FUNÇÃO PIZZA: Fundo transparente.
 def criar_grafico_pizza(atrasados, no_prazo):
     if atrasados == 0 and no_prazo == 0:
         labels, values, colors = ["Vazio"], [1], ["#e0e0e0"]
@@ -287,7 +281,7 @@ def criar_grafico_pizza(atrasados, no_prazo):
         labels=labels, values=values, hole=0.4, 
         marker_colors=colors, textinfo='percent'
     )])
-    fig.update_layout(height=120, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+    fig.update_layout(height=130, margin=dict(l=0, r=0, t=10, b=0), showlegend=False, paper_bgcolor='rgba(0,0,0,0)')
     return fig
 
 config_colunas_gerais = {
@@ -448,8 +442,12 @@ if menu_selecionado == "0. GESTÃO À VISTA":
         st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Laboratório Qualidade</h4>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total em Inspeção</p>", unsafe_allow_html=True)
         
-        # Manômetro Total + Atrasados
-        st.plotly_chart(criar_manometro_digital(cq_total, cq_atrasados, 200, "#007bff"), use_container_width=True)
+        # Manômetro Total (Sem o texto encavalado)
+        st.plotly_chart(criar_manometro_digital(cq_total, 200, "#007bff"), use_container_width=True)
+        
+        # Texto de Atrasados fora do gráfico (NUNCA vai encavalar)
+        st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {cq_atrasados}</h5>", unsafe_allow_html=True)
+        
         # Gráfico de Pizza (%)
         st.plotly_chart(criar_grafico_pizza(cq_atrasados, cq_no_prazo), use_container_width=True)
         
@@ -472,8 +470,12 @@ if menu_selecionado == "0. GESTÃO À VISTA":
         st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Doca (Recebimento)</h4>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total Livre</p>", unsafe_allow_html=True)
         
-        # Manômetro Total + Atrasados
-        st.plotly_chart(criar_manometro_digital(doca_total, doca_atrasados, 200, "#007bff"), use_container_width=True)
+        # Manômetro Total (Sem o texto encavalado)
+        st.plotly_chart(criar_manometro_digital(doca_total, 200, "#007bff"), use_container_width=True)
+        
+        # Texto de Atrasados fora do gráfico (NUNCA vai encavalar)
+        st.markdown(f"<h5 style='text-align: center; color: #dc3545; margin-top: -30px;'>Atrasados: {doca_atrasados}</h5>", unsafe_allow_html=True)
+
         # Gráfico de Pizza (%)
         st.plotly_chart(criar_grafico_pizza(doca_atrasados, doca_no_prazo), use_container_width=True)
         
@@ -488,11 +490,11 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     with col_tabela1:
         st.markdown("<h5 style='color: #dc3545; text-align: center; margin:0;'>🔴 Itens Esquecidos (Laboratório Qualidade)</h5>", unsafe_allow_html=True)
         # Tabela levemente menor para garantir que caiba com o gráfico de pizza acima dela
-        st.dataframe(top_q, use_container_width=True, hide_index=True, height=250)
+        st.dataframe(top_q, use_container_width=True, hide_index=True, height=220)
         
     with col_tabela2:
         st.markdown("<h5 style='color: #ffc107; text-align: center; margin:0;'>🟡 Itens Esquecidos (Recebimento Livre)</h5>", unsafe_allow_html=True)
-        st.dataframe(top_r, use_container_width=True, hide_index=True, height=250)
+        st.dataframe(top_r, use_container_width=True, hide_index=True, height=220)
 
 
 elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
