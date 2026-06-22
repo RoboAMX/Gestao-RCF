@@ -46,6 +46,9 @@ st.markdown("""
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
         
+        /* Botão Primário (O botão gigante do meio da tela) */
+        button[kind="primary"] { padding: 15px 20px; font-size: 18px; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); }
+        
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         
@@ -58,18 +61,6 @@ st.markdown("""
         }
 
         div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
-        
-        /* O Efeito de Hover para o nosso botão gigante (Feito via CSS puro) */
-        .btn-gigante {
-            background-color: #00579D; color: white; padding: 12px 40px; 
-            font-size: 18px; font-weight: bold; border-radius: 8px; 
-            text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.3); 
-            transition: all 0.3s;
-        }
-        .btn-gigante:hover {
-            background-color: #003A6B;
-            transform: scale(1.05);
-        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -336,6 +327,16 @@ df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.
 # ==========================================
 # 3. BARRA LATERAL E MENU DE NAVEGAÇÃO
 # ==========================================
+
+# 💡 AQUI FAZEMOS O LINK DO BOTÃO FUNCIONAR!
+OPCOES_MENU = ["0. GESTÃO À VISTA", "1. ENVIAR (Recebimento Físico)", "2. ACONDICIONAR (Almoxarifado)", "3. HISTÓRICO GERAL", "4. MURAL DE OCORRÊNCIAS", "5. ADMINISTRAÇÃO"]
+
+if 'menu_atual' not in st.session_state:
+    st.session_state['menu_atual'] = OPCOES_MENU[0]
+
+def atualizar_menu():
+    st.session_state['menu_atual'] = st.session_state['sidebar_menu']
+
 st.sidebar.image(LOGO_WEG, width=100)
 st.sidebar.markdown(f"👨‍💻 Sistema: **{st.session_state['usuario_atual'].upper()}**")
 st.sidebar.markdown(f"🛡️ Nível: **{st.session_state['perfil_atual']}**")
@@ -397,13 +398,16 @@ if st.session_state["perfil_atual"] == "Admin":
 
 st.sidebar.divider()
 
-# NAVEGAÇÃO PRINCIPAL
+# NAVEGAÇÃO PRINCIPAL (Agora ligada à função atualizar_menu)
 menu_selecionado = st.sidebar.selectbox(
     "Navegação:",
-    ["0. GESTÃO À VISTA", "1. ENVIAR (Recebimento Físico)", "2. ACONDICIONAR (Almoxarifado)", "3. HISTÓRICO GERAL", "4. MURAL DE OCORRÊNCIAS", "5. ADMINISTRAÇÃO"]
+    OPCOES_MENU,
+    index=OPCOES_MENU.index(st.session_state['menu_atual']),
+    key='sidebar_menu',
+    on_change=atualizar_menu
 )
 
-if menu_selecionado == "0. GESTÃO À VISTA":
+if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
     st.markdown("<style>.block-container { padding-top: 1rem; padding-bottom: 0rem; max-height: 100vh; overflow-y: hidden; }</style>", unsafe_allow_html=True)
     
     st.sidebar.markdown("---")
@@ -430,7 +434,7 @@ if menu_selecionado == "0. GESTÃO À VISTA":
 # 4. ROTEAMENTO DAS TELAS
 # ==========================================
 
-if menu_selecionado == "0. GESTÃO À VISTA":
+if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
     df_qualidade = df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'].copy()
     df_recebimento = df_dashboard[df_dashboard['SLA'] != '🟣 BLOQ. QUALIDADE'].copy()
     
@@ -482,19 +486,12 @@ if menu_selecionado == "0. GESTÃO À VISTA":
                 </div>
             """, unsafe_allow_html=True)
             
-            # 🚀 SOLUÇÃO MESTRE: Link <a> que ativa JavaScript contornando os bloqueios
-            st.markdown("""
-                <div style="display: flex; justify-content: center; margin-top: 40px; margin-bottom: 10px;">
-                    <a href="javascript:(function(){
-                        var btn = window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']');
-                        if(btn) { btn.click(); }
-                    })();" style="text-decoration: none;">
-                        <div class="btn-gigante">
-                            ☰ ABRIR MENU
-                        </div>
-                    </a>
-                </div>
-            """, unsafe_allow_html=True)
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            
+            # 🚀 O BOTÃO NATIVO QUE FUNCIONA COMO LINK!
+            if st.button("🚀 INICIAR RECEBIMENTO (ENVIAR)", type="primary", use_container_width=True):
+                st.session_state['menu_atual'] = "1. ENVIAR (Recebimento Físico)"
+                st.rerun()
 
     with col3:
         with st.container(border=True):
@@ -521,7 +518,7 @@ if menu_selecionado == "0. GESTÃO À VISTA":
             st.dataframe(top_r, use_container_width=True, hide_index=True, height=220)
 
 
-elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
+elif st.session_state['menu_atual'] == "1. ENVIAR (Recebimento Físico)":
     st.markdown("<h1>📋 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
     if st.session_state["pdf_pronto"] is not None:
         with st.container(border=True):
@@ -652,7 +649,7 @@ elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
                                         st.rerun()
 
 
-elif menu_selecionado == "2. ACONDICIONAR (Almoxarifado)":
+elif st.session_state['menu_atual'] == "2. ACONDICIONAR (Almoxarifado)":
     st.markdown("<h1>📦 Acondicionar (Almoxarifado)</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] == "Recebimento":
         st.error("⛔ Acesso Restrito: O seu perfil é do **Recebimento Físico**.")
@@ -720,7 +717,7 @@ elif menu_selecionado == "2. ACONDICIONAR (Almoxarifado)":
                             st.rerun()
 
 
-elif menu_selecionado == "3. HISTÓRICO GERAL":
+elif st.session_state['menu_atual'] == "3. HISTÓRICO GERAL":
     st.markdown("<h1>💾 Histórico Geral</h1>", unsafe_allow_html=True)
     query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, umb, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
@@ -753,7 +750,7 @@ elif menu_selecionado == "3. HISTÓRICO GERAL":
                 except: pass
 
 
-elif menu_selecionado == "4. MURAL DE OCORRÊNCIAS":
+elif st.session_state['menu_atual'] == "4. MURAL DE OCORRÊNCIAS":
     st.markdown("<h1>💬 Mural de Ocorrências Logísticas</h1>", unsafe_allow_html=True)
     st.write("Relate problemas físicos (Avarias, Falta de Peça) vinculados a uma Remessa específica.")
     
@@ -788,7 +785,7 @@ elif menu_selecionado == "4. MURAL DE OCORRÊNCIAS":
             st.rerun()
 
 
-elif menu_selecionado == "5. ADMINISTRAÇÃO":
+elif st.session_state['menu_atual'] == "5. ADMINISTRAÇÃO":
     st.markdown("<h1>⚙️ Painel de Controle Avançado</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
