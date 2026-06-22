@@ -6,6 +6,9 @@ from datetime import datetime
 import io
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 try:
     from reportlab.lib.pagesizes import A4, landscape
@@ -187,7 +190,42 @@ if st.session_state["precisa_mudar_senha"]:
     st.stop()
 
 # ==========================================
-# 🚀 NOVIDADE: CACHE DE DADOS (Velocidade)
+# 🚀 MOTOR DE DISPARO DE E-MAIL (GMAIL)
+# ==========================================
+def disparar_email_gmail(destino, cc, assunto, corpo_html):
+    try:
+        if "email" not in st.secrets:
+            print("Segredos de email não configurados!")
+            return False
+            
+        remetente = st.secrets["email"]["remetente"]
+        senha = st.secrets["email"]["senha"]
+
+        msg = MIMEMultipart()
+        msg['From'] = remetente
+        msg['To'] = destino
+        if cc:
+            msg['Cc'] = cc
+        msg['Subject'] = assunto
+        msg.attach(MIMEText(corpo_html, 'html'))
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(remetente, senha)
+        
+        destinatarios = [destino]
+        if cc:
+            destinatarios.extend([e.strip() for e in cc.split(';') if e.strip()])
+            
+        server.sendmail(remetente, destinatarios, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar email: {e}") # Não trava o sistema se a senha estiver errada
+        return False
+
+# ==========================================
+# 🚀 CACHE DE DADOS (Velocidade)
 # ==========================================
 @st.cache_data(ttl=30, show_spinner=False)
 def buscar_dados_brutos():
@@ -335,7 +373,6 @@ M_MUR = "💬 Mural"
 M_ADM = "⚙️ Administração"
 OPCOES_MENU = [M_DASH, M_ENV, M_ACO, M_HIST, M_MUR, M_ADM]
 
-# TRAVA DE SEGURANÇA PARA LIMPAR CACHE ANTIGO DA NUVEM:
 if 'menu_atual' not in st.session_state or st.session_state['menu_atual'] not in OPCOES_MENU:
     st.session_state['menu_atual'] = OPCOES_MENU[0]
 
@@ -358,7 +395,6 @@ if st.session_state["perfil_atual"] == "Admin":
             with st.spinner("Extraindo e comparando dados..."):
                 dados_novos = agente_almoxweb.extrair_dados_almoxweb()
                 if dados_novos:
-                    # Lógica do Robô mantida idêntica
                     df_pb = pd.DataFrame()
                     df_robo = pd.DataFrame(dados_novos)
                     df_pb['item'] = df_robo.get('Item', '').apply(limpar_sujeira_sap)
@@ -583,12 +619,41 @@ elif st.session_state['menu_atual'] == M_ENV:
                                         novo_lote = gerar_proximo_lote()
                                         df_pdf = df_bruto[df_bruto['id'].isin(st.session_state["carrinho_expedicao"])]
                                         agora_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                        
+                                        # ==========================================
+                                        # 🚀 ENVIAR E-MAIL DE DESPACHO
+                                        # ==========================================
                                         with engine.connect() as conn:
+                                            dest_info = conn.execute(text("SELECT responsavel, emails_cc FROM depositos_destino WHERE nome_deposito = :d"), {"d": deposito_selecionado}).fetchone()
+                                            email_lider = dest_info[0] if dest_info else ""
+                                            email_cc = dest_info[1] if dest_info else ""
+                                            
+                                            linhas_tabela = ""
+                                            for _, r in df_pdf.iterrows():
+                                                linhas_tabela += f"<tr><td style='border:1px solid #ddd;padding:8px;'>{r['material']}</td><td style='border:1px solid #ddd;padding:8px;'>{r['descricao']}</td><td style='border:1px solid #ddd;padding:8px;'>{r['estoque']} {r.get('umb', '')}</td></tr>"
+                                            
+                                            corpo_email = f"""
+                                            <h2>📦 Nova Remessa Despachada (Lote: {novo_lote})</h2>
+                                            <p>Olá, o identificador <b>{operador_selecionado}</b> acaba de despachar materiais para o seu setor (<b>{deposito_selecionado}</b>).</p>
+                                            <p>Por favor, aguarde a chegada física e confirme o recebimento no sistema.</p>
+                                            <table style='border-collapse: collapse; width: 100%; font-family: sans-serif;'>
+                                                <tr style='background-color: #00579D; color: white;'>
+                                                    <th style='padding:8px; text-align: left;'>Material</th><th style='padding:8px; text-align: left;'>Descrição</th><th style='padding:8px; text-align: left;'>Qtd</th>
+                                                </tr>
+                                                {linhas_tabela}
+                                            </table>
+                                            <br><p>Atenciosamente,<br>Robô Hub Inbound WEG</p>
+                                            """
+                                            if email_lider:
+                                                disparar_email_gmail(email_lider, email_cc, f"🚚 [WEG] Novo Lote Despachado (Remessa: {novo_lote})", corpo_email)
+                                        
+                                            # Atualização do Banco
                                             for id_peca in st.session_state["carrinho_expedicao"]:
                                                 conn.execute(text("UPDATE expedicao_completa SET status_envio='Em Trânsito Interno', lote_envio=:l, operador_separacao=:o, deposito_destino=:d, data_hora_despacho=:dh WHERE id=:i"), {"l": novo_lote, "o": operador_selecionado, "d": deposito_selecionado, "dh": agora_str, "i": int(id_peca)})
                                             conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'DESPACHO', :d, :o, :dt)"), {"l": novo_lote, "d": deposito_selecionado, "o": operador_selecionado, "dt": agora_str})
                                             conn.commit()
-                                        buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
+                                        
+                                        buscar_dados_brutos.clear()
                                         st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": gerar_pdf_remessa_sap(novo_lote, "Recebimento Físico", deposito_selecionado, operador_selecionado, df_pdf)}
                                         st.session_state["carrinho_expedicao"] = []
                                         st.session_state["busca_global"] = ""
@@ -626,10 +691,28 @@ elif st.session_state['menu_atual'] == M_ACO:
                             if lote_selecionado == "Mostrar Todas as Remessas":
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE status_envio = 'Em Trânsito Interno'"))
                             else:
+                                # ==========================================
+                                # 🚀 ENVIAR E-MAIL DE RECEBIMENTO
+                                # ==========================================
+                                destino = df_lote['deposito_destino'].iloc[0]
+                                operador = df_lote['operador_separacao'].iloc[0]
+                                dest_info = conn.execute(text("SELECT responsavel, emails_cc FROM depositos_destino WHERE nome_deposito = :d"), {"d": destino}).fetchone()
+                                email_lider = dest_info[0] if dest_info else ""
+                                email_cc = dest_info[1] if dest_info else ""
+                                
+                                corpo_email = f"""
+                                <h2>✅ Recebimento Confirmado (Lote: {lote_selecionado})</h2>
+                                <p>A remessa destinada ao setor <b>{destino}</b> foi recebida fisicamente e conferida no sistema.</p>
+                                <p>Os itens já se encontram disponíveis nas prateleiras e o SLA logístico foi encerrado.</p>
+                                <br><p>Atenciosamente,<br>Robô Hub Inbound WEG</p>
+                                """
+                                if email_lider:
+                                    disparar_email_gmail(email_lider, email_cc, f"✅ [WEG] Recebimento Confirmado (Remessa: {lote_selecionado})", corpo_email)
+
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio='Acondicionado no Almoxarifado' WHERE lote_envio=:l"), {"l": lote_selecionado})
-                                conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'ACONDICIONAMENTO', :d, :o, :dt)"), {"l": lote_selecionado, "d": df_lote['deposito_destino'].iloc[0], "o": df_lote['operador_separacao'].iloc[0], "dt": agora_str})
+                                conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'ACONDICIONAMENTO', :d, :o, :dt)"), {"l": lote_selecionado, "d": destino, "o": operador, "dt": agora_str})
                             conn.commit()
-                        buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
+                        buscar_dados_brutos.clear()
                         st.success("Lote Confirmado!")
                         time.sleep(1)
                         st.rerun()
@@ -641,7 +724,7 @@ elif st.session_state['menu_atual'] == M_ACO:
                                 for id_peca in selecionados_rec["id"]:
                                     conn.execute(text("UPDATE expedicao_completa SET status_envio='Acondicionado no Almoxarifado' WHERE id=:i"), {"i": int(id_peca)})
                                 conn.commit()
-                            buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
+                            buscar_dados_brutos.clear()
                             st.success(f"{len(selecionados_rec)} peças confirmadas!")
                             time.sleep(1)
                             st.rerun()
@@ -767,7 +850,8 @@ elif st.session_state['menu_atual'] == M_ADM:
                             st.success("Setor salvo!")
                             time.sleep(1)
                             st.rerun()
-                        except: st.error("Erro ao salvar.")
+                        except: st.error("Este Setor já existe.")
+                    else: st.warning("Preencha o Nome e o Responsável!")
             
             df_depositos = pd.read_sql_query("SELECT * FROM depositos_destino ORDER BY id", engine)
             st.dataframe(df_depositos, hide_index=True, use_container_width=True)
