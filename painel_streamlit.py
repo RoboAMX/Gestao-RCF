@@ -325,7 +325,7 @@ df_bruto = calcular_sla_pandas(df_bruto_orig)
 df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.empty else pd.DataFrame()
 
 # ==========================================
-# NOMES DOS MENUS (SEM NÚMEROS)
+# NOMES DOS MENUS (SEM NÚMEROS) E TRAVA DE SEGURANÇA
 # ==========================================
 M_DASH = "📊 Gestão à Vista"
 M_ENV = "📦 Recebimento Físico"
@@ -335,7 +335,8 @@ M_MUR = "💬 Mural"
 M_ADM = "⚙️ Administração"
 OPCOES_MENU = [M_DASH, M_ENV, M_ACO, M_HIST, M_MUR, M_ADM]
 
-if 'menu_atual' not in st.session_state:
+# TRAVA DE SEGURANÇA PARA LIMPAR CACHE ANTIGO DA NUVEM:
+if 'menu_atual' not in st.session_state or st.session_state['menu_atual'] not in OPCOES_MENU:
     st.session_state['menu_atual'] = OPCOES_MENU[0]
 
 def atualizar_menu_sidebar():
@@ -357,6 +358,7 @@ if st.session_state["perfil_atual"] == "Admin":
             with st.spinner("Extraindo e comparando dados..."):
                 dados_novos = agente_almoxweb.extrair_dados_almoxweb()
                 if dados_novos:
+                    # Lógica do Robô mantida idêntica
                     df_pb = pd.DataFrame()
                     df_robo = pd.DataFrame(dados_novos)
                     df_pb['item'] = df_robo.get('Item', '').apply(limpar_sujeira_sap)
@@ -420,6 +422,7 @@ if st.session_state['menu_atual'] != M_DASH:
     p_critico = len(df_dashboard[df_dashboard['SLA'] == '🔴 URGENTE (>7d)'])
     p_qualidade = len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])
 
+    # 🚀 CARTÕES RICOS EM HTML/CSS FLEXBOX
     st.markdown(f"""
         <div class='cards-container'>
             <div class='kpi-card-novo borda-azul'><div class='kpi-titulo-novo'>Total Recebimento</div><p class='kpi-valor-novo'>{tot_rec}</p></div>
@@ -585,7 +588,7 @@ elif st.session_state['menu_atual'] == M_ENV:
                                                 conn.execute(text("UPDATE expedicao_completa SET status_envio='Em Trânsito Interno', lote_envio=:l, operador_separacao=:o, deposito_destino=:d, data_hora_despacho=:dh WHERE id=:i"), {"l": novo_lote, "o": operador_selecionado, "d": deposito_selecionado, "dh": agora_str, "i": int(id_peca)})
                                             conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'DESPACHO', :d, :o, :dt)"), {"l": novo_lote, "d": deposito_selecionado, "o": operador_selecionado, "dt": agora_str})
                                             conn.commit()
-                                        buscar_dados_brutos.clear()
+                                        buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
                                         st.session_state["pdf_pronto"] = {"lote": novo_lote, "bytes": gerar_pdf_remessa_sap(novo_lote, "Recebimento Físico", deposito_selecionado, operador_selecionado, df_pdf)}
                                         st.session_state["carrinho_expedicao"] = []
                                         st.session_state["busca_global"] = ""
@@ -626,7 +629,7 @@ elif st.session_state['menu_atual'] == M_ACO:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio='Acondicionado no Almoxarifado' WHERE lote_envio=:l"), {"l": lote_selecionado})
                                 conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'ACONDICIONAMENTO', :d, :o, :dt)"), {"l": lote_selecionado, "d": df_lote['deposito_destino'].iloc[0], "o": df_lote['operador_separacao'].iloc[0], "dt": agora_str})
                             conn.commit()
-                        buscar_dados_brutos.clear()
+                        buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
                         st.success("Lote Confirmado!")
                         time.sleep(1)
                         st.rerun()
@@ -638,7 +641,7 @@ elif st.session_state['menu_atual'] == M_ACO:
                                 for id_peca in selecionados_rec["id"]:
                                     conn.execute(text("UPDATE expedicao_completa SET status_envio='Acondicionado no Almoxarifado' WHERE id=:i"), {"i": int(id_peca)})
                                 conn.commit()
-                            buscar_dados_brutos.clear()
+                            buscar_dados_brutos.clear() # 🚀 LIMPA O CACHE!
                             st.success(f"{len(selecionados_rec)} peças confirmadas!")
                             time.sleep(1)
                             st.rerun()
