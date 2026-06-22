@@ -46,16 +46,22 @@ st.markdown("""
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
         
-        /* Botão Primário (O botão gigante do meio da tela) */
         button[kind="primary"] { padding: 15px 20px; font-size: 18px; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); }
         
-        /* Estilo do botão de voltar para não ser gigante igual os outros */
-        .btn-voltar button { width: auto !important; padding: 5px 15px !important; background-color: #6c757d !important; border-radius: 20px !important;}
-        .btn-voltar button:hover { background-color: #5a6268 !important; }
-
+        /* Estilos dos Cartões Laterais (Pequenos) */
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         
+        /* 🚀 NOVOS ESTILOS: Cartões do Topo (Grandes, para Abas 1 a 5) */
+        .kpi-card-top { background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); margin-bottom: 10px; border-bottom: 4px solid; }
+        .kpi-card-top .kpi-valor { font-size: 32px; font-weight: bold; margin-bottom: 5px; }
+        .kpi-card-top .kpi-titulo { font-size: 13px; color: #666; font-weight: bold; text-transform: uppercase; }
+        .kpi-azul { border-color: #00579D; } .kpi-azul .kpi-valor { color: #00579D; }
+        .kpi-verde { border-color: #2e7d32; } .kpi-verde .kpi-valor { color: #2e7d32; }
+        .kpi-amarelo { border-color: #f57c00; } .kpi-amarelo .kpi-valor { color: #f57c00; }
+        .kpi-vermelho { border-color: #d32f2f; } .kpi-vermelho .kpi-valor { color: #d32f2f; }
+        .kpi-roxo { border-color: #9c27b0; } .kpi-roxo .kpi-valor { color: #9c27b0; }
+
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border: 1px solid rgba(0, 87, 157, 0.15) !important; 
             background-color: rgba(255, 255, 255, 0.4) !important; 
@@ -337,7 +343,7 @@ OPCOES_MENU = ["0. GESTÃO À VISTA", "1. ENVIAR (Recebimento Físico)", "2. ACO
 if 'menu_atual' not in st.session_state:
     st.session_state['menu_atual'] = OPCOES_MENU[0]
 
-def atualizar_menu():
+def atualizar_menu_sidebar():
     st.session_state['menu_atual'] = st.session_state['sidebar_menu']
 
 st.sidebar.image(LOGO_WEG, width=100)
@@ -401,20 +407,21 @@ if st.session_state["perfil_atual"] == "Admin":
 
 st.sidebar.divider()
 
-# NAVEGAÇÃO PRINCIPAL (Agora ligada à função atualizar_menu)
-menu_selecionado = st.sidebar.selectbox(
-    "Navegação:",
+# Selectbox da barra lateral
+st.sidebar.selectbox(
+    "Navegação Rápida:",
     OPCOES_MENU,
     index=OPCOES_MENU.index(st.session_state['menu_atual']),
     key='sidebar_menu',
-    on_change=atualizar_menu
+    on_change=atualizar_menu_sidebar
 )
 
+# Renderiza os KPIs ocultáveis APENAS na Gestão à Vista (Aba 0)
 if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
     st.markdown("<style>.block-container { padding-top: 1rem; padding-bottom: 0rem; max-height: 100vh; overflow-y: hidden; }</style>", unsafe_allow_html=True)
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("Indicadores")
+    st.sidebar.subheader("Indicadores Gerais")
     
     tot_rec = len(df_dashboard)
     p_prazo = len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])
@@ -434,7 +441,42 @@ if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
 
 
 # ==========================================
-# 4. ROTEAMENTO DAS TELAS
+# 4. RENDERIZAR MENU SUPERIOR E CARTÕES (APENAS NAS ABAS 1 A 5)
+# ==========================================
+if st.session_state['menu_atual'] != "0. GESTÃO À VISTA":
+    
+    # 1. MENU HORIZONTAL NO TOPO DA TELA
+    st.markdown("<br>", unsafe_allow_html=True)
+    menu_topo = st.radio(
+        "Navegação Principal",
+        OPCOES_MENU,
+        index=OPCOES_MENU.index(st.session_state['menu_atual']),
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    if menu_topo != st.session_state['menu_atual']:
+        st.session_state['menu_atual'] = menu_topo
+        st.rerun()
+
+    # 2. OS 5 CARTÕES GIGANTES
+    tot_rec = len(df_dashboard)
+    p_prazo = len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])
+    p_atencao = len(df_dashboard[df_dashboard['SLA'] == '🟡 ATENÇÃO (>3d)'])
+    p_critico = len(df_dashboard[df_dashboard['SLA'] == '🔴 URGENTE (>7d)'])
+    p_qualidade = len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])
+
+    c_top1, c_top2, c_top3, c_top4, c_top5 = st.columns(5)
+    c_top1.markdown(f"<div class='kpi-card-top kpi-azul'><div class='kpi-titulo'>Total no Recebimento</div><div class='kpi-valor'>{tot_rec}</div></div>", unsafe_allow_html=True)
+    c_top2.markdown(f"<div class='kpi-card-top kpi-verde'><div class='kpi-titulo'>Prazo (≤3D)</div><div class='kpi-valor'>{p_prazo}</div></div>", unsafe_allow_html=True)
+    c_top3.markdown(f"<div class='kpi-card-top kpi-amarelo'><div class='kpi-titulo'>Atenção (>3D)</div><div class='kpi-valor'>{p_atencao}</div></div>", unsafe_allow_html=True)
+    c_top4.markdown(f"<div class='kpi-card-top kpi-vermelho'><div class='kpi-titulo'>Crítico (>7D)</div><div class='kpi-valor'>{p_critico}</div></div>", unsafe_allow_html=True)
+    c_top5.markdown(f"<div class='kpi-card-top kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{p_qualidade}</div></div>", unsafe_allow_html=True)
+    
+    st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+
+
+# ==========================================
+# 5. ROTEAMENTO DO CONTEÚDO DAS TELAS
 # ==========================================
 
 if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
@@ -491,8 +533,7 @@ if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
             
             st.markdown("<br><br>", unsafe_allow_html=True)
             
-            # 🚀 O BOTÃO NATIVO QUE FUNCIONA COMO LINK!
-            if st.button("🚀 INICIAR RECEBIMENTO (ENVIAR)", type="primary", use_container_width=True):
+            if st.button("🚀 INICIAR RECEBIMENTO", type="primary", use_container_width=True):
                 st.session_state['menu_atual'] = "1. ENVIAR (Recebimento Físico)"
                 st.rerun()
 
@@ -522,13 +563,6 @@ if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
 
 
 elif st.session_state['menu_atual'] == "1. ENVIAR (Recebimento Físico)":
-    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
-    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
-        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<h1>📋 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
     if st.session_state["pdf_pronto"] is not None:
         with st.container(border=True):
             st.success(f"🎉 Carga enviada com sucesso! (Remessa: {st.session_state['pdf_pronto']['lote']})")
@@ -659,13 +693,6 @@ elif st.session_state['menu_atual'] == "1. ENVIAR (Recebimento Físico)":
 
 
 elif st.session_state['menu_atual'] == "2. ACONDICIONAR (Almoxarifado)":
-    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
-    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
-        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<h1>📦 Acondicionar (Almoxarifado)</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] == "Recebimento":
         st.error("⛔ Acesso Restrito: O seu perfil é do **Recebimento Físico**.")
     else:
@@ -733,13 +760,6 @@ elif st.session_state['menu_atual'] == "2. ACONDICIONAR (Almoxarifado)":
 
 
 elif st.session_state['menu_atual'] == "3. HISTÓRICO GERAL":
-    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
-    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
-        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<h1>💾 Histórico Geral</h1>", unsafe_allow_html=True)
     query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, umb, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
     
@@ -772,13 +792,6 @@ elif st.session_state['menu_atual'] == "3. HISTÓRICO GERAL":
 
 
 elif st.session_state['menu_atual'] == "4. MURAL DE OCORRÊNCIAS":
-    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
-    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
-        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<h1>💬 Mural de Ocorrências Logísticas</h1>", unsafe_allow_html=True)
     st.write("Relate problemas físicos (Avarias, Falta de Peça) vinculados a uma Remessa específica.")
     
     df_lotes_chat = pd.read_sql_query("SELECT DISTINCT lote_envio FROM expedicao_completa WHERE lote_envio IS NOT NULL ORDER BY lote_envio DESC", engine)
@@ -813,13 +826,6 @@ elif st.session_state['menu_atual'] == "4. MURAL DE OCORRÊNCIAS":
 
 
 elif st.session_state['menu_atual'] == "5. ADMINISTRAÇÃO":
-    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
-    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
-        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<h1>⚙️ Painel de Controle Avançado</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
     else:
