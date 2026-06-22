@@ -49,6 +49,10 @@ st.markdown("""
         /* Botão Primário (O botão gigante do meio da tela) */
         button[kind="primary"] { padding: 15px 20px; font-size: 18px; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); }
         
+        /* Estilo do botão de voltar para não ser gigante igual os outros */
+        .btn-voltar button { width: auto !important; padding: 5px 15px !important; background-color: #6c757d !important; border-radius: 20px !important;}
+        .btn-voltar button:hover { background-color: #5a6268 !important; }
+
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
         .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         
@@ -328,7 +332,6 @@ df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.
 # 3. BARRA LATERAL E MENU DE NAVEGAÇÃO
 # ==========================================
 
-# 💡 AQUI FAZEMOS O LINK DO BOTÃO FUNCIONAR!
 OPCOES_MENU = ["0. GESTÃO À VISTA", "1. ENVIAR (Recebimento Físico)", "2. ACONDICIONAR (Almoxarifado)", "3. HISTÓRICO GERAL", "4. MURAL DE OCORRÊNCIAS", "5. ADMINISTRAÇÃO"]
 
 if 'menu_atual' not in st.session_state:
@@ -519,6 +522,12 @@ if st.session_state['menu_atual'] == "0. GESTÃO À VISTA":
 
 
 elif st.session_state['menu_atual'] == "1. ENVIAR (Recebimento Físico)":
+    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
+    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
+        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<h1>📋 Hub Inbound (Entrada de Material)</h1>", unsafe_allow_html=True)
     if st.session_state["pdf_pronto"] is not None:
         with st.container(border=True):
@@ -650,6 +659,12 @@ elif st.session_state['menu_atual'] == "1. ENVIAR (Recebimento Físico)":
 
 
 elif st.session_state['menu_atual'] == "2. ACONDICIONAR (Almoxarifado)":
+    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
+    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
+        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<h1>📦 Acondicionar (Almoxarifado)</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] == "Recebimento":
         st.error("⛔ Acesso Restrito: O seu perfil é do **Recebimento Físico**.")
@@ -718,6 +733,12 @@ elif st.session_state['menu_atual'] == "2. ACONDICIONAR (Almoxarifado)":
 
 
 elif st.session_state['menu_atual'] == "3. HISTÓRICO GERAL":
+    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
+    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
+        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<h1>💾 Histórico Geral</h1>", unsafe_allow_html=True)
     query_hist = "SELECT lote_envio, operador_separacao, deposito_destino, data_hora_despacho, id, material, descricao, estoque, umb, nfe, status_envio FROM expedicao_completa WHERE status_envio != 'Pendente' ORDER BY id DESC"
     df_hist = pd.read_sql_query(query_hist, engine)
@@ -751,6 +772,12 @@ elif st.session_state['menu_atual'] == "3. HISTÓRICO GERAL":
 
 
 elif st.session_state['menu_atual'] == "4. MURAL DE OCORRÊNCIAS":
+    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
+    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
+        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<h1>💬 Mural de Ocorrências Logísticas</h1>", unsafe_allow_html=True)
     st.write("Relate problemas físicos (Avarias, Falta de Peça) vinculados a uma Remessa específica.")
     
@@ -786,6 +813,12 @@ elif st.session_state['menu_atual'] == "4. MURAL DE OCORRÊNCIAS":
 
 
 elif st.session_state['menu_atual'] == "5. ADMINISTRAÇÃO":
+    st.markdown("<div class='btn-voltar'>", unsafe_allow_html=True)
+    if st.button("⬅️ VOLTAR PARA O PAINEL DE GESTÃO"):
+        st.session_state['menu_atual'] = "0. GESTÃO À VISTA"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<h1>⚙️ Painel de Controle Avançado</h1>", unsafe_allow_html=True)
     if st.session_state["perfil_atual"] != "Admin":
         st.error("⛔ Acesso Restrito aos Administradores.")
