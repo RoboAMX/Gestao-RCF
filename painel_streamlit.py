@@ -31,7 +31,8 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
-st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="collapsed")
+# MUDANÇA: initial_sidebar_state="expanded" para o menu já começar aberto e você ver!
+st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -41,7 +42,7 @@ st.markdown("""
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
         .kpi-card { background-color: #f8f9fa; border-left: 5px solid; padding: 10px; border-radius: 5px; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-        .alert-card { padding: 10px; border-radius: 5px; margin-top: 5px; font-size: 13px; text-align: center; }
+        .alert-card { padding: 8px; border-radius: 5px; margin-top: 5px; font-size: 12px; text-align: center; }
         .css-1r6slb0, .css-1n76uvr { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 4px 15px rgba(0,87,157,0.1); border-top: 4px solid #00579D; }
         div[data-testid="stCameraInput"] button { background-color: #2e7d32 !important; }
     </style>
@@ -247,22 +248,46 @@ def gerar_pdf_remessa_sap(lote, origem, destino, operador, df_itens):
     buffer.seek(0)
     return buffer.getvalue()
 
-def criar_manometro_digital(valor, maximo, cor_ponteiro):
+# NOVA FUNÇÃO DE GRÁFICO: Manômetro com anotação dupla
+def criar_manometro_digital(total, atrasados, maximo, cor_ponteiro):
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number", value = valor,
-        number = {'font': {'size': 45, 'color': cor_ponteiro}},
+        mode = "gauge+number", 
+        value = total,
+        number = {'font': {'size': 40, 'color': cor_ponteiro}},
         gauge = {
-            'axis': {'range': [0, maximo], 'tickwidth': 1, 'tickcolor': "darkgray"},
+            'axis': {'range': [0, maximo if maximo > 0 else 1], 'tickwidth': 1, 'tickcolor': "darkgray"},
             'bar': {'color': "rgba(0,0,0,0)"}, 'bgcolor': "#f0f2f6", 'borderwidth': 2, 'bordercolor': "#d1d5db",
             'steps': [
                 {'range': [0, maximo*0.33], 'color': "#28a745"}, 
                 {'range': [maximo*0.33, maximo*0.66], 'color': "#ffc107"}, 
                 {'range': [maximo*0.66, maximo], 'color': "#dc3545"} 
             ],
-            'threshold': {'line': {'color': cor_ponteiro, 'width': 6}, 'thickness': 0.8, 'value': valor}
+            'threshold': {'line': {'color': cor_ponteiro, 'width': 6}, 'thickness': 0.8, 'value': total}
         }
     ))
-    fig.update_layout(height=180, margin=dict(l=20, r=20, t=10, b=10))
+    # ADICIONA A SEGUNDA LINHA DE TEXTO (Atrasados) EMBAIXO DO TOTAL
+    fig.add_annotation(
+        text=f"Atrasados: <b>{atrasados}</b>",
+        x=0.5, y=0.1, showarrow=False,
+        font=dict(size=18, color="#dc3545") # Vermelho chamativo
+    )
+    fig.update_layout(height=160, margin=dict(l=20, r=20, t=10, b=0))
+    return fig
+
+# NOVA FUNÇÃO DE GRÁFICO: Pizza (Donut) de %
+def criar_grafico_pizza(atrasados, no_prazo):
+    if atrasados == 0 e no_prazo == 0:
+        labels, values, colors = ["Vazio"], [1], ["#e0e0e0"]
+    else:
+        labels = ['Atrasados', 'No Prazo']
+        values = [atrasados, no_prazo]
+        colors = ['#dc3545', '#28a745'] # Vermelho e Verde
+
+    fig = go.Figure(data=[go.Pie(
+        labels=labels, values=values, hole=0.4, 
+        marker_colors=colors, textinfo='percent'
+    )])
+    fig.update_layout(height=120, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
     return fig
 
 config_colunas_gerais = {
@@ -400,6 +425,9 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     cq_atrasados = len(df_qualidade[df_qualidade['dias_parado'] > 3])
     doca_atrasados = len(df_recebimento[df_recebimento['dias_parado'] > 7])
 
+    cq_no_prazo = cq_total - cq_atrasados
+    doca_no_prazo = doca_total - doca_atrasados
+
     if not df_qualidade.empty:
         idx_q = df_qualidade['dias_parado'].idxmax()
         dias_antigo_cq = int(df_qualidade.loc[idx_q, 'dias_parado'])
@@ -419,16 +447,21 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     with col1:
         st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Laboratório Qualidade</h4>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total em Inspeção</p>", unsafe_allow_html=True)
-        st.plotly_chart(criar_manometro_digital(cq_total, 200, "#007bff"), use_container_width=True)
-        st.markdown("""<div class="alert-card" style="background-color: #f8d7da; border-left: 5px solid #dc3545; color: #721c24;"><strong>Regra de Atraso (CQ):</strong> Material aguardando inspeção há mais de <strong>3 dias</strong>.</div>""", unsafe_allow_html=True)
+        
+        # Manômetro Total + Atrasados
+        st.plotly_chart(criar_manometro_digital(cq_total, cq_atrasados, 200, "#007bff"), use_container_width=True)
+        # Gráfico de Pizza (%)
+        st.plotly_chart(criar_grafico_pizza(cq_atrasados, cq_no_prazo), use_container_width=True)
+        
+        st.markdown("""<div class="alert-card" style="background-color: #f8d7da; border-left: 5px solid #dc3545; color: #721c24;"><strong>Regra:</strong> Atrasado > <strong>3 dias</strong>.</div>""", unsafe_allow_html=True)
 
     with col2:
         st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 25px;'>Relógio de Permanência</h4>", unsafe_allow_html=True)
         st.markdown(f"""
-            <div style="text-align: center;">
+            <div style="text-align: center; margin-top: 20px;">
                 <p style="margin:0; font-weight: bold; color: gray;">Material mais Antigo na Qualidade</p>
                 <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_cq} dias</p>
-                <h4 style="margin:0; color: #dc3545;">{data_antigo_cq}</h4><br>
+                <h4 style="margin:0; color: #dc3545;">{data_antigo_cq}</h4><br><br>
                 <p style="margin:0; font-weight: bold; color: gray;">Material mais Antigo no Recebimento</p>
                 <p style="margin:0; font-size: 14px;">Esquecido há {dias_antigo_r} dias</p>
                 <h4 style="margin:0; color: #ffc107;">{data_antigo_r}</h4>
@@ -438,8 +471,13 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     with col3:
         st.markdown("<h4 style='text-align: center; color: #0056b3; margin-bottom: 0;'>Doca (Recebimento)</h4>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-weight: bold;'>Total Livre</p>", unsafe_allow_html=True)
-        st.plotly_chart(criar_manometro_digital(doca_total, 200, "#007bff"), use_container_width=True)
-        st.markdown("""<div class="alert-card" style="background-color: #fff3cd; border-left: 5px solid #ffc107; color: #856404;"><strong>Regra de Atraso (Doca):</strong> Material parado na doca sem destinação há mais de <strong>7 dias</strong>.</div>""", unsafe_allow_html=True)
+        
+        # Manômetro Total + Atrasados
+        st.plotly_chart(criar_manometro_digital(doca_total, doca_atrasados, 200, "#007bff"), use_container_width=True)
+        # Gráfico de Pizza (%)
+        st.plotly_chart(criar_grafico_pizza(doca_atrasados, doca_no_prazo), use_container_width=True)
+        
+        st.markdown("""<div class="alert-card" style="background-color: #fff3cd; border-left: 5px solid #ffc107; color: #856404;"><strong>Regra:</strong> Atrasado > <strong>7 dias</strong>.</div>""", unsafe_allow_html=True)
 
     st.markdown("---")
     
@@ -448,12 +486,13 @@ if menu_selecionado == "0. GESTÃO À VISTA":
     top_r = df_recebimento[['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor']].sort_values(by='dias_parado', ascending=False).head(15) if not df_recebimento.empty else pd.DataFrame(columns=['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor'])
 
     with col_tabela1:
-        st.markdown("<h5 style='color: #dc3545; text-align: center;'>🔴 Itens Esquecidos (Laboratório Qualidade)</h5>", unsafe_allow_html=True)
-        st.dataframe(top_q, use_container_width=True, hide_index=True, height=380)
+        st.markdown("<h5 style='color: #dc3545; text-align: center; margin:0;'>🔴 Itens Esquecidos (Laboratório Qualidade)</h5>", unsafe_allow_html=True)
+        # Tabela levemente menor para garantir que caiba com o gráfico de pizza acima dela
+        st.dataframe(top_q, use_container_width=True, hide_index=True, height=250)
         
     with col_tabela2:
-        st.markdown("<h5 style='color: #ffc107; text-align: center;'>🟡 Itens Esquecidos (Recebimento Livre)</h5>", unsafe_allow_html=True)
-        st.dataframe(top_r, use_container_width=True, hide_index=True, height=380)
+        st.markdown("<h5 style='color: #ffc107; text-align: center; margin:0;'>🟡 Itens Esquecidos (Recebimento Livre)</h5>", unsafe_allow_html=True)
+        st.dataframe(top_r, use_container_width=True, hide_index=True, height=250)
 
 
 elif menu_selecionado == "1. ENVIAR (Recebimento Físico)":
