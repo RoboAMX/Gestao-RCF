@@ -31,7 +31,7 @@ except ModuleNotFoundError:
 # ==========================================
 # 🎨 CONFIGURAÇÕES DE PÁGINA E CSS GERAL
 # ==========================================
-# MUDANÇA: initial_sidebar_state="expanded" para o menu já começar aberto e você ver!
+# Menu lateral já começa aberto!
 st.set_page_config(page_title="Portal Inbound WEG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -276,7 +276,7 @@ def criar_manometro_digital(total, atrasados, maximo, cor_ponteiro):
 
 # NOVA FUNÇÃO DE GRÁFICO: Pizza (Donut) de %
 def criar_grafico_pizza(atrasados, no_prazo):
-    if atrasados == 0 e no_prazo == 0:
+    if atrasados == 0 and no_prazo == 0:
         labels, values, colors = ["Vazio"], [1], ["#e0e0e0"]
     else:
         labels = ['Atrasados', 'No Prazo']
@@ -685,7 +685,7 @@ elif menu_selecionado == "2. ACONDICIONAR (Almoxarifado)":
                         st.rerun()
                         
                 with col_r2:
-                    if st.button("✅ Confirmar APENAS os itens marcados na tabela", use_container_width=True):
+                    if st.button("✅ Confirmar APENAS os itens marcado na tabela", use_container_width=True):
                         if selecionados_rec.empty: st.error("Marque as caixinhas dos materiais!")
                         else:
                             with engine.connect() as conn:
