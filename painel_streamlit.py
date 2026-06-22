@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 import time
 from datetime import datetime
 import io
+import plotly.graph_objects as go  # 🚀 BIBLIOTECA NOVA PARA OS GRÁFICOS (VELOCÍMETROS)
 
 try:
     from reportlab.lib.pagesizes import A4, landscape
@@ -38,7 +39,7 @@ st.markdown("""
         h1, h2, h3, h4, h5 { color: #00579D !important; font-family: 'Segoe UI', sans-serif; }
         div.stButton > button:first-child { background-color: #00579D; color: white; border-radius: 4px; border: none; font-weight: bold; width: 100%; }
         div.stButton > button:first-child:hover { background-color: #003A6B; transform: scale(1.02); }
-        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); }
+        .kpi-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0px 4px 10px rgba(0,87,157,0.1); margin-bottom: 20px; }
         .kpi-valor { font-size: 36px; font-weight: bold; margin-bottom: 5px; }
         .kpi-titulo { font-size: 14px; color: #666; font-weight: bold; text-transform: uppercase; }
         .kpi-azul .kpi-valor { color: #00579D; } .kpi-verde .kpi-valor { color: #2e7d32; }
@@ -75,7 +76,7 @@ with engine.connect() as conn:
     
     conn.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT, perfil TEXT)"))
     conn.execute(text("CREATE TABLE IF NOT EXISTS depositos_destino (id SERIAL PRIMARY KEY, nome_deposito TEXT UNIQUE, responsavel TEXT)"))
-    conn.execute(text("ALTER TABLE depositos_destino ADD COLUMN IF NOT EXISTS emails_cc TEXT")) # 🚀 NOVA COLUNA DE CC!
+    conn.execute(text("ALTER TABLE depositos_destino ADD COLUMN IF NOT EXISTS emails_cc TEXT")) 
     conn.execute(text("CREATE TABLE IF NOT EXISTS operadores_fisicos (id SERIAL PRIMARY KEY, nome TEXT UNIQUE)"))
     
     conn.execute(text('''
@@ -84,7 +85,6 @@ with engine.connect() as conn:
         )
     '''))
     
-    # 🚀 A CAIXA DE CORREIOS INVISÍVEL!
     conn.execute(text('''
         CREATE TABLE IF NOT EXISTS fila_emails (
             id SERIAL PRIMARY KEY, lote_envio TEXT, tipo_evento TEXT, destino TEXT, 
@@ -253,7 +253,8 @@ def calcular_sla_pandas(df):
         elif row['dias_parado'] > 3: return "🟡 ATENÇÃO (>3d)"
         else: return "🟢 NO PRAZO"
     df['SLA'] = df.apply(classificar_regra, axis=1)
-    return df.drop(columns=['data_real', 'dias_parado'])
+    # NÃO REMOVER 'dias_parado' aqui, vamos usar no Dashboard!
+    return df.drop(columns=['data_real'])
 
 def calcular_sla_acondicionamento(df):
     if df.empty or 'data_hora_despacho' not in df.columns: 
@@ -339,24 +340,129 @@ query_bruta = "SELECT * FROM expedicao_completa WHERE status_envio IN ('Pendente
 df_bruto = pd.read_sql_query(query_bruta, engine)
 df_bruto = calcular_sla_pandas(df_bruto)
 
-df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.empty else pd.DataFrame()
-
-if not df_dashboard.empty:
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total no Recebimento</div><div class='kpi-valor'>{len(df_dashboard)}</div></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
-    c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
-    c4.markdown(f"<div class='kpi-card kpi-vermelho'><div class='kpi-titulo'>Crítico (>7d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🔴 URGENTE (>7d)'])}</div></div>", unsafe_allow_html=True)
-    c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
-    st.write("")
-
-aba_recebimento, aba_almoxarifado, aba_historico, aba_chat, aba_admin = st.tabs([
+aba_dashboard, aba_recebimento, aba_almoxarifado, aba_historico, aba_chat, aba_admin = st.tabs([
+    "📊 0. GESTÃO À VISTA",
     "📋 1. ENVIAR (Recebimento Físico)", 
     "📦 2. ACONDICIONAR (Almoxarifado)", 
     "💾 3. HISTÓRICO GERAL",
     "💬 4. MURAL DE OCORRÊNCIAS", 
     "⚙️ 5. ADMINISTRAÇÃO"
 ])
+
+# ------------------------------------------
+# 🚀 NOVA ABA 0: DASHBOARD E GESTÃO À VISTA
+# ------------------------------------------
+with aba_dashboard:
+    df_dashboard = df_bruto[df_bruto['status_envio'] == 'Pendente'] if not df_bruto.empty else pd.DataFrame()
+    
+    if df_dashboard.empty:
+        st.success("🎉 Tudo limpo! Nenhum material parado aguardando envio na Doca.")
+    else:
+        # --- CARDS GERAIS (Que ficavam flutuando antes) ---
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.markdown(f"<div class='kpi-card kpi-azul'><div class='kpi-titulo'>Total no Recebimento</div><div class='kpi-valor'>{len(df_dashboard)}</div></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div class='kpi-card kpi-verde'><div class='kpi-titulo'>Prazo (≤3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟢 NO PRAZO'])}</div></div>", unsafe_allow_html=True)
+        c3.markdown(f"<div class='kpi-card kpi-amarelo'><div class='kpi-titulo'>Atenção (>3d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟡 ATENÇÃO (>3d)'])}</div></div>", unsafe_allow_html=True)
+        c4.markdown(f"<div class='kpi-card kpi-vermelho'><div class='kpi-titulo'>Crítico (>7d)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🔴 URGENTE (>7d)'])}</div></div>", unsafe_allow_html=True)
+        c5.markdown(f"<div class='kpi-card kpi-roxo'><div class='kpi-titulo'>Qualidade (CQ)</div><div class='kpi-valor'>{len(df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'])}</div></div>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # --- DIVISÃO DAS REGIÕES: QUALIDADE VS RECEBIMENTO ---
+        df_qualidade = df_dashboard[df_dashboard['SLA'] == '🟣 BLOQ. QUALIDADE'].copy()
+        df_recebimento = df_dashboard[df_dashboard['SLA'] != '🟣 BLOQ. QUALIDADE'].copy()
+        
+        total_q = len(df_qualidade)
+        total_r = len(df_recebimento)
+        
+        # O que é "Prioridade"? Vamos assumir Itens Atrasados (> 3 dias parados)
+        prioridade_q = len(df_qualidade[df_qualidade['dias_parado'] > 3]) if not df_qualidade.empty else 0
+        prioridade_r = len(df_recebimento[df_recebimento['dias_parado'] > 3]) if not df_recebimento.empty else 0
+        
+        antigo_q_dias = int(df_qualidade['dias_parado'].max()) if not df_qualidade.empty and pd.notna(df_qualidade['dias_parado'].max()) else 0
+        antigo_r_dias = int(df_recebimento['dias_parado'].max()) if not df_recebimento.empty and pd.notna(df_recebimento['dias_parado'].max()) else 0
+        
+        antigo_q_data = df_qualidade.loc[df_qualidade['dias_parado'].idxmax(), 'data_em'] if not df_qualidade.empty else "N/A"
+        antigo_r_data = df_recebimento.loc[df_recebimento['dias_parado'].idxmax(), 'data_em'] if not df_recebimento.empty else "N/A"
+
+        # --- FUNÇÃO DO GRÁFICO ---
+        def criar_gauge(valor, maximo, titulo):
+            maximo = maximo if maximo > 0 else 1 # Evitar erro de divisão por zero
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number", value=valor, title={'text': titulo, 'font': {'size': 18}},
+                gauge={
+                    'axis': {'range': [None, maximo]}, 'bar': {'color': "#00579D"},
+                    'steps': [
+                        {'range': [0, maximo*0.5], 'color': "lightgreen"},
+                        {'range': [maximo*0.5, maximo*0.8], 'color': "yellow"},
+                        {'range': [maximo*0.8, maximo], 'color': "salmon"}
+                    ]
+                }
+            ))
+            fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+            return fig
+
+        # --- CONSTRUÇÃO VISUAL DAS 3 COLUNAS ---
+        col_esq, col_meio, col_dir = st.columns([1, 1.2, 1])
+
+        with col_esq:
+            st.markdown("<h3 style='text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;'>Laboratório Qualidade</h3>", unsafe_allow_html=True)
+            g1, g2 = st.columns(2)
+            with g1: st.plotly_chart(criar_gauge(prioridade_q, total_q, "Atrasados"), use_container_width=True)
+            with g2: st.plotly_chart(criar_gauge(total_q, len(df_dashboard), "Total (CQ)"), use_container_width=True)
+            st.markdown(f"""
+                <div style="display: flex; gap: 10px; text-align: center; font-size: 24px; font-weight: bold; color: white;">
+                    <div style="flex: 1; background-color: #4CAF50; padding: 15px; border-radius: 5px;">{total_q - prioridade_q}</div>
+                    <div style="flex: 1; background-color: #F44336; padding: 15px; border-radius: 5px;">{prioridade_q}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with col_meio:
+            st.markdown("<h3 style='text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;'>Relógio de Permanência</h3>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div style="text-align: center; margin-top: 20px;">
+                    <p style="font-size: 18px; margin: 0; font-weight: bold; color: #666;">Material mais Antigo na Qualidade</p>
+                    <p style="font-size: 16px; margin: 0;">Esquecido há {antigo_q_dias} dias</p>
+                    <p style="font-size: 22px; font-weight: bold; color: #9c27b0;">{antigo_q_data}</p>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                    <p style="font-size: 18px; margin: 0; font-weight: bold; color: #666;">Material mais Antigo no Recebimento</p>
+                    <p style="font-size: 16px; margin: 0;">Esquecido há {antigo_r_dias} dias</p>
+                    <p style="font-size: 22px; font-weight: bold; color: #00579D;">{antigo_r_data}</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with col_dir:
+            st.markdown("<h3 style='text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;'>Doca (Recebimento)</h3>", unsafe_allow_html=True)
+            g3, g4 = st.columns(2)
+            with g3: st.plotly_chart(criar_gauge(prioridade_r, total_r, "Atrasados"), use_container_width=True)
+            with g4: st.plotly_chart(criar_gauge(total_r, len(df_dashboard), "Total Livre"), use_container_width=True)
+            st.markdown(f"""
+                <div style="display: flex; gap: 10px; text-align: center; font-size: 24px; font-weight: bold; color: white;">
+                    <div style="flex: 1; background-color: #4CAF50; padding: 15px; border-radius: 5px;">{total_r - prioridade_r}</div>
+                    <div style="flex: 1; background-color: #00579D; padding: 15px; border-radius: 5px;">{total_r}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        
+        # --- TABELAS TOP 10 EM ATRASO ---
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("#### 🔴 Top 10 Itens Esquecidos (Laboratório Qualidade)")
+            if not df_qualidade.empty:
+                top_q = df_qualidade[['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor']].sort_values(by='dias_parado', ascending=False).head(10)
+                st.dataframe(top_q, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum item na qualidade.")
+
+        with col_t2:
+            st.markdown("#### 🟡 Top 10 Itens Esquecidos (Recebimento Livre)")
+            if not df_recebimento.empty:
+                top_r = df_recebimento[['dias_parado', 'material', 'descricao', 'nfe', 'fornecedor']].sort_values(by='dias_parado', ascending=False).head(10)
+                st.dataframe(top_r, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum item em atraso no recebimento.")
 
 # ------------------------------------------
 # ABA 1: ENVIAR (RECEBIMENTO FÍSICO)
@@ -483,7 +589,6 @@ with aba_recebimento:
                                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Em Trânsito Interno', lote_envio = :lote, operador_separacao = :op, deposito_destino = :dep, data_hora_despacho = :dh WHERE id = :id_peca"), 
                                                              {"lote": novo_lote, "op": operador_selecionado, "dep": deposito_selecionado, "dh": agora_str, "id_peca": int(id_peca)})
                                             
-                                            # 🚀 MAGIA DO E-MAIL: INSERINDO A CARTA NA CAIXA DE CORREIOS DO ROBÔ!
                                             conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'DESPACHO', :d, :o, :dt)"),
                                                          {"l": novo_lote, "d": deposito_selecionado, "o": operador_selecionado, "dt": agora_str})
                                             conn.commit()
@@ -543,7 +648,6 @@ with aba_almoxarifado:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE status_envio = 'Em Trânsito Interno'"))
                             else:
                                 conn.execute(text("UPDATE expedicao_completa SET status_envio = 'Acondicionado no Almoxarifado' WHERE lote_envio = :lote"), {"lote": lote_selecionado})
-                                # 🚀 E-MAIL: AVISA QUE O ALMOXARIFADO ACONDICIONOU!
                                 destino = df_lote['deposito_destino'].iloc[0]
                                 operador = df_lote['operador_separacao'].iloc[0]
                                 conn.execute(text("INSERT INTO fila_emails (lote_envio, tipo_evento, destino, operador, data_criacao) VALUES (:l, 'ACONDICIONAMENTO', :d, :o, :dt)"),
